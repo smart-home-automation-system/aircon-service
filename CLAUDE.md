@@ -4,7 +4,7 @@ The air conditioners of the house (epic HAS-376): five Gree indoor units over th
 state, commands and the rules of the house (open windows, 22 °C minimum in cooling, sanctum below
 25 °C, the empty house, a lost grid, run hours). Scaffolded by HAS-380 with the units of the
 registry and the driver; the state of every unit since HAS-381; the commands and the guard of 22 °C since HAS-382;
-the availability monitor since HAS-383; the features come with HAS-384 onwards.
+the availability monitor since HAS-383; the open windows since HAS-384; the features come with HAS-385 onwards.
 
 Part of the smart-home-automation-system organization — org-wide conventions, the
 repository map and working rules come from the workspace-level context
@@ -18,8 +18,8 @@ IntelliJ.
 - Is called by: the dashboard through `api-gateway-service` (`/home/aircon`, `/home/aircon/**`,
   every method - gateway 0.11.0, HAS-379).
 - Calls: `database-service` for the registry (`GET /home/device/registry?kind=air conditioner&enabled=true`
-  every 5 min, k8s DNS) and the units themselves (UDP 7000). Planned: heating-service (the windows),
-  presence-service (the empty house), energy-service (a lost grid), notification-service.
+  every 5 min, k8s DNS), `heating-service` for the windows of the rooms (`GET /home/heating/rooms` every minute,
+  >= 1.20.0, k8s DNS - HAS-384) and the units themselves (UDP 7000). Planned: presence-service (the empty house), energy-service (a lost grid), notification-service.
 - Uses libraries: `cholewa-commons` 1.13.0 (the pooled `ConnectionFactory`, the required
   properties, the scheduler pool and `ScheduledPass`, the error contract), `smart-home-sdk` 1.18.0
   (`DeviceKind.AIR_CONDITIONER`, `GreeBinding`), `shelly-client` 2.6.0 **with its beans on**
@@ -30,7 +30,7 @@ IntelliJ.
 ## Build & run
 
 - Build + tests: `mvn verify` - **needs a running Docker** since HAS-381 (`AirconStateRepositoryTest`,
-  Testcontainers PostgreSQL).
+  `WindowHoldRepositoryTest` - Testcontainers PostgreSQL).
 - Local run: `home,local` Spring profiles, port `6015` (Actuator `8015`); in-cluster port `6200`,
   Actuator `8200`. Needs `database-password` and the other `database-*` values. **The real values
   are the production database** - a migration is rehearsed on a throwaway PostgreSQL, never by a
@@ -110,10 +110,10 @@ firmware `362001065279+U-WB05RT13V1.45.bin`, `ver V3.4.M`, mid 10001:
   tables of the state; rehearsed with the released 0.1.0 image on a throwaway PostgreSQL both ways (0.1.0 starts
   over V2 - Flyway ignores a future migration). **`V3`** (HAS-382) adds `minimum-restored` to the check of the history;
   rehearsed the same way (0.2.0 starts over V3). **`V4`** (HAS-383) creates `aircon_availability_alert`; rehearsed
-  the same way with 0.3.0.
+  the same way with 0.3.0. **`V5`** (HAS-384) creates `aircon_window_hold`; rehearsed the same way with 0.4.0 (0.4.0 starts over V5).
 - **Scheduling is off under `test`** (`SchedulingConfig`, `@Profile("!test")`): the registry pass
-  is wrapped in `ScheduledPass.bounded` (2 min, below its 5 min delay), the state pass too (25 s, below its 30 s);
-  the scheduler has the pool
+  is wrapped in `ScheduledPass.bounded` (2 min, below its 5 min delay), the state pass too (25 s, below its 30 s),
+  the availability monitor and the window pass (55 s, below their minute); the scheduler has the pool
   of 10 of the library.
 - **The broker** (HAS-383): one connection to `/notification` (user `notification`, `rabbitmq-password` in
   `cholewa.required-properties`), the publisher of `cholewa-commons` on `spring.rabbitmq.*` - the shape of
@@ -126,6 +126,22 @@ firmware `362001065279+U-WB05RT13V1.45.bin`, `ver V3.4.M`, mid 10001:
   back, one removed from the registry is forgotten without a word. The table changes only after the broker took the
   message (confirms and returns of the publisher); a publish is cut off after 30 s and neither fails nor stalls the pass
   (bounded at 55 s). `unreachableSince` is in the reads.
+- **The open windows** (HAS-384, `window/`): **heating-service judges the window, this service never does** - one rule of
+  the windows (3 min) for the heaters and the units, no third copy of the sensors. `WindowHoldEvaluator` (pure) decides per
+  unit every minute against its latest row of `aircon_window_hold` (`V5`): a window that holds stops a unit known to be on -
+  the row first (what it was doing), then `power: false` through `CommandService` with `source=window`; **once per
+  opening** (the `openSince` of heating-service is stored - a person who switches the unit on again with the window open is
+  not fought; `openSince` is kept to the microsecond, as the column, or a stop read back would be a new opening); a
+  command not taken is sent again next minute (`STOP_AGAIN`), never to a unit that does not answer (`reachable: false`). The windows `closed` within
+  `aircon.window.restore-within` (PT1H) send the state back (`restoreOf`, `power: true`, the display left alone); later the
+  stop `expired`. **A change by anybody but the window since the stop** (`StateStore.lastChange` - the remote, the
+  dashboard, a rule; `window` and `first-read` are nobody) gives the restore up (`cancelled`); a restore the rules refuse is
+  `refused`, one the unit did not answer is tried again. `unknown`, `no sensor`, a room heating-service does not answer and
+  a failed read never stop and never set back (the stop waits, at most until `restore-within`). `WindowStates` holds what
+  the reads answer as `window` - forgotten on a failed read. A stop that ended is deleted after 90 days (`KEPT`), with
+  every pass. Known and left: with two windows open, the close of the older moves `openSince` and looks like a new
+  opening (owner 2026-11-07). The DoD test was moved to the office: sanctum has no window
+  sensor (heating-service answers `no sensor`, 2026-11-07).
 - **Tests use `mockwebserver3`** for the client of database-service, never the legacy
   `mockwebserver` (JUnit 4).
 - **Surefire activates the `test` profile for every class**; the `includes` match only
