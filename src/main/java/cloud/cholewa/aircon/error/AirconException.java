@@ -1,0 +1,24 @@
+package cloud.cholewa.aircon.error;
+
+import lombok.Getter;
+import org.springframework.http.HttpStatus;
+
+//A request the API refuses (HAS-380): the status says whose problem it is, the error names the cause, the message is
+//answered as details
+@Getter
+public class AirconException extends RuntimeException {
+
+    private final HttpStatus httpStatus;
+    private final AirconError error;
+
+    public AirconException(final HttpStatus httpStatus, final AirconError error, final String message) {
+        super(message);
+        this.httpStatus = httpStatus;
+        this.error = error;
+    }
+
+    public static AirconException registryUnavailable() {
+        return new AirconException(HttpStatus.SERVICE_UNAVAILABLE, AirconError.REGISTRY_UNAVAILABLE,
+            "The air conditioners of the device registry are not known yet");
+    }
+}

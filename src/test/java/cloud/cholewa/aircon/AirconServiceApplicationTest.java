@@ -1,5 +1,6 @@
 package cloud.cholewa.aircon;
 
+import cloud.cholewa.aircon.driver.GreeProperties;
 import cloud.cholewa.commons.database.DatabaseProperties;
 import cloud.cholewa.shelly.http.ShellyGen1Client;
 import cloud.cholewa.shelly.http.ShellyRpcClient;
@@ -11,6 +12,8 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.scheduling.annotation.ScheduledAnnotationBeanPostProcessor;
 import org.springframework.test.context.ActiveProfiles;
 
+import java.time.Duration;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest
@@ -21,6 +24,8 @@ class AirconServiceApplicationTest {
     private DatabaseProperties databaseProperties;
     @Autowired
     private ApplicationContext applicationContext;
+    @Autowired
+    private GreeProperties greeProperties;
 
     @Test
     void contextLoads() {
@@ -57,6 +62,12 @@ class AirconServiceApplicationTest {
         assertThat(applicationContext.getEnvironment().getProperty("cholewa.required-properties[1].property")).isNull();
     }
 
+    //the protocol of the probe of 2026-11-04: UDP 7000, 3 s for an answer, two more attempts, a new bind after three
+    //failed requests in a row - a duration lost or mistyped would bind as milliseconds
+    @Test
+    void should_speak_to_the_units_as_agreed() {
+        assertThat(greeProperties).isEqualTo(new GreeProperties(7000, Duration.ofSeconds(3), 2, 3));
+    }
 
     //the plugs that feed the units (their power card, later in the epic) are read through the clients of shelly-client
     @Test
