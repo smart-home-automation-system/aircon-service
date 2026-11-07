@@ -8,8 +8,9 @@ import java.net.URI;
 
 //The services this one calls inside the cluster, by k8s DNS (HAS-380). database - database-service, the device
 //registry the air conditioners (the kind air conditioner, HAS-378) are read from; heating - heating-service, the windows
-//of the rooms (HAS-384)
+//of the rooms (HAS-384); presence - presence-service, who is at home, and energy - energy-service, the grid (HAS-385)
 @Validated
 @ConfigurationProperties("internal.service")
-public record InternalServicesProperties(@NotNull URI database, @NotNull URI heating) {
+public record InternalServicesProperties(@NotNull URI database, @NotNull URI heating, @NotNull URI presence,
+                                         @NotNull URI energy) {
 }

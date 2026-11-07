@@ -1,7 +1,8 @@
 package cloud.cholewa.aircon.window;
 
 import cloud.cholewa.aircon.api.model.CommandRequest;
-import cloud.cholewa.aircon.command.CommandService;
+import cloud.cholewa.aircon.automation.AutomationState;
+import cloud.cholewa.aircon.automation.RuleCommands;
 import cloud.cholewa.aircon.error.AirconException;
 import cloud.cholewa.aircon.registry.AirConditioner;
 import cloud.cholewa.aircon.registry.UnitRegistry;
@@ -30,7 +31,6 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -58,8 +58,9 @@ class WindowWatchTest {
     private final WindowHoldRepository repository = mock(WindowHoldRepository.class);
     private final WindowStates windowStates = new WindowStates();
     private final StateStore store = mock(StateStore.class);
-    private final CommandService commands = mock(CommandService.class);
-    private final WindowWatch watch = new WindowWatch(registry, heating, repository, windowStates, store, commands,
+    private final RuleCommands commands = mock(RuleCommands.class);
+    private final AutomationState automation = mock(AutomationState.class);
+    private final WindowWatch watch = new WindowWatch(registry, heating, repository, windowStates, store, commands, automation,
         new WindowProperties(WITHIN), CLOCK);
 
     @BeforeEach
@@ -69,7 +70,7 @@ class WindowWatchTest {
         when(repository.insert(anyLong(), any(), any(), any())).thenReturn(Mono.empty());
         when(repository.close(anyLong(), any(), any())).thenReturn(Mono.empty());
         when(repository.deleteClosedBefore(any())).thenReturn(Mono.empty());
-        when(commands.send(anyLong(), any(), anyString())).thenReturn(Mono.empty());
+        when(commands.send(anyLong(), any(), any(), any())).thenReturn(Mono.empty());
     }
 
     //the stop kept first, then the unit switched off by the window
@@ -82,7 +83,7 @@ class WindowWatchTest {
 
         final var order = inOrder(repository, commands);
         order.verify(repository).insert(140, OPENED, NOW, COOLING);
-        order.verify(commands).send(140, WindowWatch.OFF, "window");
+        order.verify(commands).send(140, WindowWatch.OFF, ChangeSource.WINDOW, NOW);
         assertThat(windowStates.restoreUntil(140)).contains(NOW.plus(WITHIN));
         assertThat(windowStates.of("office")).contains(new RoomWindow("open", OPENED, true));
     }
@@ -92,7 +93,7 @@ class WindowWatchTest {
     void should_keep_the_stop_when_the_unit_did_not_take_the_command() {
         rooms(new HeatingRoom("office", new RoomWindow("open", OPENED, true)));
         when(store.of(140)).thenReturn(Optional.of(new UnitState(COOLING, true, NOW, null)));
-        when(commands.send(anyLong(), any(), anyString()))
+        when(commands.send(anyLong(), any(), any(), any()))
             .thenReturn(Mono.error(AirconException.deviceFailed("Air conditioner 140 did not take the command")));
 
         watch.watchOnce().as(StepVerifier::create).verifyComplete();
@@ -110,7 +111,7 @@ class WindowWatchTest {
 
         watch.watchOnce().as(StepVerifier::create).verifyComplete();
 
-        verify(commands, never()).send(anyLong(), any(), anyString());
+        verify(commands, never()).send(anyLong(), any(), any(), any());
         verify(repository, never()).close(anyLong(), any(), any());
         assertThat(windowStates.of("office")).isEmpty();
         assertThat(windowStates.restoreUntil(140)).contains(NOW.minusMinutes(10).plus(WITHIN));
@@ -125,9 +126,23 @@ class WindowWatchTest {
         watch.watchOnce().as(StepVerifier::create).verifyComplete();
 
         verify(commands).send(140, new CommandRequest(true, Mode.COOL, 24, FanSpeed.AUTO, 0, 2, false, true, false, null),
-            "window");
+            ChangeSource.WINDOW, NOW.minusMinutes(10));
         verify(repository).close(7L, HoldOutcome.RESTORED, NOW);
         assertThat(windowStates.restoreUntil(140)).isEmpty();
+    }
+
+    //nobody at home or the grid lost: the closed windows do not switch the unit back on (HAS-385)
+    @Test
+    void should_not_set_back_a_unit_while_the_house_is_empty_or_the_grid_lost() {
+        rooms(new HeatingRoom("office", new RoomWindow("closed", null, false)));
+        when(store.of(140)).thenReturn(Optional.of(new UnitState(OFF, true, NOW, null)));
+        when(repository.latest()).thenReturn(Flux.just(open(NOW.minusMinutes(10))));
+        when(automation.holdsTheUnitsOff()).thenReturn(true);
+
+        watch.watchOnce().as(StepVerifier::create).verifyComplete();
+
+        verify(commands, never()).send(anyLong(), any(), any(), any());
+        verify(repository).close(7L, HoldOutcome.EXPIRED, NOW);
     }
 
     @Test
@@ -135,7 +150,7 @@ class WindowWatchTest {
         rooms(new HeatingRoom("office", new RoomWindow("closed", null, false)));
         when(store.of(140)).thenReturn(Optional.of(new UnitState(OFF, true, NOW, null)));
         when(repository.latest()).thenReturn(Flux.just(open(NOW.minusMinutes(10))));
-        when(commands.send(anyLong(), any(), anyString()))
+        when(commands.send(anyLong(), any(), any(), any()))
             .thenReturn(Mono.error(AirconException.invalidCommand("Cooling never goes below 22 C, not 18")));
 
         watch.watchOnce().as(StepVerifier::create).verifyComplete();
@@ -148,7 +163,7 @@ class WindowWatchTest {
         rooms(new HeatingRoom("office", new RoomWindow("closed", null, false)));
         when(store.of(140)).thenReturn(Optional.of(new UnitState(OFF, false, NOW, NOW.minusMinutes(1))));
         when(repository.latest()).thenReturn(Flux.just(open(NOW.minusMinutes(10))));
-        when(commands.send(anyLong(), any(), anyString()))
+        when(commands.send(anyLong(), any(), any(), any()))
             .thenReturn(Mono.error(AirconException.deviceFailed("Air conditioner 140 did not take the command")));
 
         watch.watchOnce().as(StepVerifier::create).verifyComplete();
@@ -167,7 +182,7 @@ class WindowWatchTest {
         watch.watchOnce().as(StepVerifier::create).verifyComplete();
 
         verify(repository).close(7L, HoldOutcome.CANCELLED, NOW);
-        verify(commands, never()).send(anyLong(), any(), anyString());
+        verify(commands, never()).send(anyLong(), any(), any(), any());
     }
 
     @Test
@@ -179,7 +194,7 @@ class WindowWatchTest {
         watch.watchOnce().as(StepVerifier::create).verifyComplete();
 
         verify(repository).close(7L, HoldOutcome.EXPIRED, NOW);
-        verify(commands, never()).send(anyLong(), any(), anyString());
+        verify(commands, never()).send(anyLong(), any(), any(), any());
     }
 
     //a room heating-service does not answer is never held
@@ -190,7 +205,7 @@ class WindowWatchTest {
 
         watch.watchOnce().as(StepVerifier::create).verifyComplete();
 
-        verify(commands, never()).send(anyLong(), any(), anyString());
+        verify(commands, never()).send(anyLong(), any(), any(), any());
         verify(repository, never()).insert(anyLong(), any(), any(), any());
     }
 
@@ -205,8 +220,8 @@ class WindowWatchTest {
 
         watch.watchOnce().as(StepVerifier::create).verifyComplete();
 
-        verify(commands, never()).send(eq(140L), any(), anyString());
-        verify(commands).send(141, WindowWatch.OFF, "window");
+        verify(commands, never()).send(eq(140L), any(), any(), any());
+        verify(commands).send(141, WindowWatch.OFF, ChangeSource.WINDOW, NOW);
     }
 
     //an unreachable unit last known on is not sent the stop every minute
@@ -218,7 +233,7 @@ class WindowWatchTest {
 
         watch.watchOnce().as(StepVerifier::create).verifyComplete();
 
-        verify(commands, never()).send(anyLong(), any(), anyString());
+        verify(commands, never()).send(anyLong(), any(), any(), any());
     }
 
     //the opening to the microsecond, as the column keeps it: read back it is the same opening

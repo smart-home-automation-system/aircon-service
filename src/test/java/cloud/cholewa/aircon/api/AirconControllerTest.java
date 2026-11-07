@@ -1,6 +1,8 @@
 package cloud.cholewa.aircon.api;
 
 import cloud.cholewa.aircon.api.model.AirconReply;
+import cloud.cholewa.aircon.api.model.AutomationReply;
+import cloud.cholewa.aircon.automation.AutomationService;
 import cloud.cholewa.aircon.api.model.CommandRequest;
 import cloud.cholewa.aircon.api.model.RoomCommandReply;
 import cloud.cholewa.aircon.api.model.WindowReply;
@@ -45,6 +47,24 @@ class AirconControllerTest {
 
     @MockitoBean
     private CommandService commandService;
+
+    @MockitoBean
+    private AutomationService automationService;
+
+    //the empty house and the grid (HAS-385); a field not known is left out, the objects stay
+    @Test
+    void should_answer_the_automation() {
+        when(automationService.automation()).thenReturn(Mono.just(new AutomationReply(
+            new AutomationReply.EmptyHouse(true, LocalDateTime.of(2026, 11, 7, 18, 45), LocalDateTime.of(2026, 11, 7, 18, 55)),
+            new AutomationReply.Grid(null, null))));
+
+        webTestClient.get().uri("/automation")
+            .exchange()
+            .expectStatus().isOk()
+            .expectBody().json("""
+                {"emptyHouse": {"empty": true, "since": "2026-11-07T18:45:00", "actedAt": "2026-11-07T18:55:00"},
+                 "grid": {}}""", JsonCompareMode.STRICT);
+    }
 
     //a field not known is left out - a unit not read yet is its id, name and room
     @Test

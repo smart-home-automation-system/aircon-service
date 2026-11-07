@@ -1,6 +1,8 @@
 package cloud.cholewa.aircon.api;
 
 import cloud.cholewa.aircon.api.model.AirconReply;
+import cloud.cholewa.aircon.api.model.AutomationReply;
+import cloud.cholewa.aircon.automation.AutomationService;
 import cloud.cholewa.aircon.api.model.CommandRequest;
 import cloud.cholewa.aircon.api.model.RoomCommandReply;
 import cloud.cholewa.aircon.command.CommandService;
@@ -26,6 +28,13 @@ public class AirconController {
 
     private final UnitService unitService;
     private final CommandService commandService;
+    private final AutomationService automationService;
+
+    //the empty house and the grid, and when each last switched the units off (HAS-385)
+    @GetMapping("automation")
+    Mono<AutomationReply> automation() {
+        return automationService.automation();
+    }
 
     //every unit of the registry with its state as last read (HAS-381)
     @GetMapping
