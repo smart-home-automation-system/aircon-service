@@ -32,15 +32,14 @@ protocol on the home network - no Gree cloud. The service will track their state
 commands of the dashboard and keep the rules of the house (open windows, a minimum temperature in
 cooling, the server room, the empty house, a lost grid).
 
-**Today it is HAS-380**: the scaffold, the units of the device registry and the driver of the Gree
-protocol, with one endpoint - every unit with a live read of its status. What comes next:
+**Today**: the units of the device registry (the five of the house since HAS-393), the driver of the Gree
+protocol (HAS-380) and the state of every unit, read every 30 s and stored (HAS-381), served by three reads.
+What comes next:
 
 | Task | What |
 |---|---|
-| HAS-381 | the state of every unit tracked, and the reads served from it |
 | HAS-382 | the commands, with the minimum of 22 °C in cooling |
 | HAS-383 to HAS-391 | the availability monitor, the open windows, the empty house and a lost grid, the rules per unit, the power of the plugs, the run hours |
-| HAS-393 | the five units registered |
 
 # The Gree protocol
 
@@ -61,9 +60,9 @@ waits 3 s for its answer and is sent again up to twice (`aircon.gree.*`).
 
 # Run locally
 
-- Build: `mvn verify` (JDK 21) - no Docker needed until the first test of PostgreSQL-only SQL
-  (Testcontainers, the dependencies are in the pom already). The driver is tested against a fake
-  unit on a UDP port of the loopback, with a made-up MAC and key.
+- Build: `mvn verify` (JDK 21) - **needs a running Docker**: `AirconStateRepositoryTest` runs the SQL of the
+  state against a PostgreSQL of Testcontainers. The driver is tested against a fake unit on a UDP port of the
+  loopback, with a made-up MAC and key.
 - Ports: local profile `6015` (management `8015`); in the deployed `home` profile the service
   listens on `6200` and Actuator on `8200` like every service in the cluster. The ingress routes
   only 6200, so Actuator is reachable inside the cluster only - where the Kubernetes probes hit
@@ -84,7 +83,9 @@ Under the base path `/home/aircon`, routed by the gateway by path, every method 
 
 | Method | Path | Answer |
 |---|---|---|
-| `GET` | `/home/aircon` | every air conditioner of the registry (the kind `air conditioner`, switched on) in its order, each with one live read of its status: `id`, `name`, `room`, `reachable`, and `status` - `power`, `mode` (`auto`, `cool`, `dry`, `fan`, `heat`), `targetTemperature` and `roomTemperature` in °C, `fanSpeed` (`auto`, `low`, `medium low`, `medium`, `medium high`, `high`), `swingVertical` / `swingHorizontal` (the position codes of the unit), `quiet`, `turbo`, `sleep`, `light`, `firmware`. A field the unit did not report is `null`; a unit that did not answer is `reachable: false` with `status: null`. `503 REGISTRY_UNAVAILABLE` until the registry was read once |
+| `GET` | `/home/aircon` | every air conditioner of the registry (the kind `air conditioner`, switched on) in its order, with its state as last read (every 30 s): `id`, `name`, `room`, `power`, `mode` (`auto`, `cool`, `dry`, `fan`, `heat`), `targetTemperature` and `roomTemperature` in °C, `fanSpeed` (`auto`, `low`, `medium-low`, `medium`, `medium-high`, `high`), `swingVertical` / `swingHorizontal` (the position codes of the unit), `quiet`, `turbo`, `sleep`, `display`, `reachable` (whether the last read answered) and `updatedAt` (house time of the last read that answered). **A field not known is left out** - a unit not read yet answers `id`, `name` and `room` alone, `reachable` is left out after a start until the first read; a unit that stopped answering keeps what it reported, with `reachable: false`. `503 REGISTRY_UNAVAILABLE` until the registry was read once |
+| `GET` | `/home/aircon/{id}` | one unit, the same fields; `404 NOT_FOUND_AIRCON` for an id no air conditioner of the registry has |
+| `GET` | `/home/aircon/rooms/{room}` | the units of a room by the name of the registry (`office`, `hall up`); `404 NOT_FOUND_ROOM` for a room without a unit, or a name that is no room |
 
 # Database
 
@@ -92,5 +93,9 @@ Under the base path `/home/aircon`, routed by the gateway by path, every method 
 services needs `GRANT USAGE, CREATE ON SCHEMA public` before the first start, or Flyway fails with
 `permission denied for schema public`.
 
-- `V1` is an empty baseline - the tables come with the tasks that store something. Its first run
-  creates the history table of Flyway, which proves the grant.
+- `V1` is an empty baseline - its first run creates the history table of Flyway, which proves the grant.
+- `V2` (HAS-381): `aircon_state`, the current row of every unit read (inserted at its first read, its values
+  and `changed_at` moved only when one changed, `last_checked_at` with every read that answered - restored at a
+  start), and `aircon_state_change`, a row for every change of the power, the mode, the target or the fan with
+  who made it (`first-read`, `remote`, and the senders of the tasks to come - checked by the table). Rehearsed on
+  2026-11-07 on a throwaway PostgreSQL: V2 over the database of 0.1.0, and 0.1.0 starts over V2 (rollback safe).

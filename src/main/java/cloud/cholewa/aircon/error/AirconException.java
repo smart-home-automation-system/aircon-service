@@ -21,4 +21,15 @@ public class AirconException extends RuntimeException {
         return new AirconException(HttpStatus.SERVICE_UNAVAILABLE, AirconError.REGISTRY_UNAVAILABLE,
             "The air conditioners of the device registry are not known yet");
     }
+
+    public static AirconException airconNotFound(final long id) {
+        return new AirconException(HttpStatus.NOT_FOUND, AirconError.NOT_FOUND_AIRCON,
+            "No air conditioner " + id + " is registered");
+    }
+
+    //the room is never echoed: it is a text of the request
+    public static AirconException roomNotFound() {
+        return new AirconException(HttpStatus.NOT_FOUND, AirconError.NOT_FOUND_ROOM,
+            "No air conditioner is registered in this room");
+    }
 }

@@ -14,14 +14,19 @@ import java.util.Optional;
 public enum FanSpeed {
     AUTO(0, "auto"),
     LOW(1, "low"),
-    MEDIUM_LOW(2, "medium low"),
+    MEDIUM_LOW(2, "medium-low"),
     MEDIUM(3, "medium"),
-    MEDIUM_HIGH(4, "medium high"),
+    MEDIUM_HIGH(4, "medium-high"),
     HIGH(5, "high");
 
     private final int wire;
     @JsonValue
     private final String value;
+
+    //the value as the API and the table write it, or nothing for a word this version does not know
+    public static Optional<FanSpeed> ofValue(final String value) {
+        return Arrays.stream(values()).filter(speed -> speed.value.equals(value)).findFirst();
+    }
 
     public static Optional<FanSpeed> ofWire(final int wire) {
         return Arrays.stream(values()).filter(speed -> speed.wire == wire).findFirst();

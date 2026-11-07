@@ -1,50 +1,72 @@
 package cloud.cholewa.aircon.unit;
 
-import cloud.cholewa.aircon.api.model.UnitReply;
-import cloud.cholewa.aircon.driver.GreeClient;
+import cloud.cholewa.aircon.api.model.AirconReply;
 import cloud.cholewa.aircon.error.AirconException;
 import cloud.cholewa.aircon.registry.AirConditioner;
 import cloud.cholewa.aircon.registry.UnitRegistry;
+import cloud.cholewa.aircon.state.StateStore;
+import cloud.cholewa.aircon.state.UnitState;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 
-//The units of the registry with one live read of the status of each (HAS-380) - the tracking of their state comes
-//with the next task. The units are read at once, each answered in the order of the registry; a unit that does not
-//answer within READ_LIMIT is unreachable, so the whole read stays below the response timeout of the gateway (30 s)
-@Slf4j
+//The reads of the air conditioners (HAS-381): the units of the registry with the state the tracker keeps - nothing is
+//read from a unit for a request any more. A unit the tracker has not read yet answers its id, name and room alone
 @Service
 @RequiredArgsConstructor
 public class UnitService {
 
-    //a bind of a unit with a new key (a scan and a bind) and its status, each of them up to three attempts of 3 s,
-    //would take longer: such a unit is answered unreachable this time and found bound at the next read
-    static final Duration READ_LIMIT = Duration.ofSeconds(25);
-
     private final UnitRegistry unitRegistry;
-    private final GreeClient greeClient;
+    private final StateStore stateStore;
 
-    public Mono<List<UnitReply>> units() {
-        return Mono.justOrEmpty(unitRegistry.current())
-            .switchIfEmpty(Mono.error(AirconException::registryUnavailable))
-            .flatMapMany(Flux::fromIterable)
-            .flatMapSequential(this::read)
-            .collectList();
+    public Mono<List<AirconReply>> units() {
+        return registered().map(units -> units.stream().map(this::replyOf).toList());
     }
 
-    private Mono<UnitReply> read(final AirConditioner unit) {
-        return greeClient.status(unit)
-            .timeout(READ_LIMIT)
-            .map(status -> new UnitReply(unit.id(), unit.name(), unit.room(), true, status))
-            .onErrorResume(failure -> Mono.fromSupplier(() -> {
-                log.warn("The status of air conditioner {} ({}) could not be read: {}", unit.id(), unit.mac(),
-                    failure.getMessage());
-                return new UnitReply(unit.id(), unit.name(), unit.room(), false, null);
-            }));
+    public Mono<AirconReply> unit(final long id) {
+        return registered()
+            .flatMap(units -> Mono.justOrEmpty(units.stream().filter(unit -> unit.id() == id).findFirst()))
+            .map(this::replyOf)
+            .switchIfEmpty(Mono.error(() -> AirconException.airconNotFound(id)));
+    }
+
+    public Mono<List<AirconReply>> room(final String room) {
+        return registered()
+            .map(units -> units.stream()
+                .filter(unit -> unit.room() != null && unit.room().getValue().equals(room))
+                .map(this::replyOf)
+                .toList())
+            .filter(replies -> !replies.isEmpty())
+            .switchIfEmpty(Mono.error(AirconException::roomNotFound));
+    }
+
+    private Mono<List<AirConditioner>> registered() {
+        return Mono.justOrEmpty(unitRegistry.current())
+            .switchIfEmpty(Mono.error(AirconException::registryUnavailable));
+    }
+
+    private AirconReply replyOf(final AirConditioner unit) {
+        final Optional<UnitState> state = stateStore.of(unit.id());
+        final Optional<UnitStatus> status = state.map(UnitState::status);
+        return new AirconReply(
+            unit.id(),
+            unit.name(),
+            unit.room(),
+            status.map(UnitStatus::power).orElse(null),
+            status.map(UnitStatus::mode).orElse(null),
+            status.map(UnitStatus::targetTemperature).orElse(null),
+            status.map(UnitStatus::roomTemperature).orElse(null),
+            status.map(UnitStatus::fanSpeed).orElse(null),
+            status.map(UnitStatus::swingVertical).orElse(null),
+            status.map(UnitStatus::swingHorizontal).orElse(null),
+            status.map(UnitStatus::quiet).orElse(null),
+            status.map(UnitStatus::turbo).orElse(null),
+            status.map(UnitStatus::sleep).orElse(null),
+            status.map(UnitStatus::display).orElse(null),
+            state.map(UnitState::reachable).orElse(null),
+            state.map(UnitState::updatedAt).orElse(null));
     }
 }

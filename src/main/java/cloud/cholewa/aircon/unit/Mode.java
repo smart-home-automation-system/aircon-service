@@ -22,6 +22,11 @@ public enum Mode {
     @JsonValue
     private final String value;
 
+    //the value as the API and the table write it, or nothing for a word this version does not know
+    public static Optional<Mode> ofValue(final String value) {
+        return Arrays.stream(values()).filter(mode -> mode.value.equals(value)).findFirst();
+    }
+
     public static Optional<Mode> ofWire(final int wire) {
         return Arrays.stream(values()).filter(mode -> mode.wire == wire).findFirst();
     }
