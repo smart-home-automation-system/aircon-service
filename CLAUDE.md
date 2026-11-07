@@ -3,7 +3,7 @@
 The air conditioners of the house (epic HAS-376): five Gree indoor units over their local protocol -
 state, commands and the rules of the house (open windows, 22 °C minimum in cooling, sanctum below
 25 °C, the empty house, a lost grid, run hours). Scaffolded by HAS-380 with the units of the
-registry and the driver; the features come with HAS-381 onwards.
+registry and the driver; the state of every unit since HAS-381; the features come with HAS-382 onwards.
 
 Part of the smart-home-automation-system organization — org-wide conventions, the
 repository map and working rules come from the workspace-level context
@@ -28,7 +28,8 @@ IntelliJ.
 
 ## Build & run
 
-- Build + tests: `mvn verify` - no Docker needed until the first test of PostgreSQL-only SQL.
+- Build + tests: `mvn verify` - **needs a running Docker** since HAS-381 (`AirconStateRepositoryTest`,
+  Testcontainers PostgreSQL).
 - Local run: `home,local` Spring profiles, port `6015` (Actuator `8015`); in-cluster port `6200`,
   Actuator `8200`. Needs `database-password` and the other `database-*` values. **The real values
   are the production database** - a migration is rehearsed on a throwaway PostgreSQL, never by a
@@ -71,17 +72,31 @@ firmware `362001065279+U-WB05RT13V1.45.bin`, `ver V3.4.M`, mid 10001:
 
 - **One instance, never scaled**: the keys of the units live in memory, and the state and the rules
   will too, so the Deployment is `Recreate`.
-- **`GET /home/aircon` reads every unit live** (HAS-380) - all at once, answered in the order of the
-  registry; a unit not answered within 25 s is `reachable: false`, so the read stays below the 30 s
-  of the gateway. The state tracking of HAS-381 replaces the live read.
+- **The state of every unit** (HAS-381, `state/`): `StateTracker` reads every unit of the registry every 30 s,
+  one after the other, the one read longest ago first (a pass is bounded at 25 s - an unreachable unit costs
+  up to 9 s - and a cut pass reads the others first the next time). A read that answered is the state in memory
+  (`StateStore`), the current row of `aircon_state` and, for a change of the power, the mode, the target or the
+  fan, a row of `aircon_state_change` - `remote` while the service sends nothing, `first-read` for the first
+  read of a unit (a word of its own, not in the list of the task: the start of the history of the run hours of
+  HAS-391). A read that did not answer keeps what the unit reported, `reachable: false`; a WARN when a unit
+  stops answering, an INFO when it answers again, never one a pass. At the start, before the first read, the
+  rows of `aircon_state` are the state, `reachable` not known. A failed write is a WARN, the memory holds.
+  **The reads of the API answer the state in memory** - nothing reads a unit for a request; a field not known is
+  left out (`@JsonInclude(NON_NULL)` of `AirconReply`), never a default.
+- **The words of the API** (HAS-381, the task): `fanSpeed` `medium-low` / `medium-high`, and `display` for the
+  light of the panel (`Lig`) - 0.1.0 said `medium low` and `light`, read by nobody. The firmware is read but
+  neither stored nor answered.
 - **The socket API blocks**: `GreeTransport` runs every exchange on `boundedElastic`, never on an
   event loop; the lock per address is taken there too.
 - **`database-password` has no default**: `cholewa.required-properties` refuses the start before the
   first bean. It is the only secret of the service so far.
 - **`V1` is an empty baseline** (only a comment): Flyway applies it and writes its history table,
-  so the start has no `No migrations found` WARN and proves the grant.
+  so the start has no `No migrations found` WARN and proves the grant. **`V2`** (HAS-381) creates the two
+  tables of the state; rehearsed with the released 0.1.0 image on a throwaway PostgreSQL both ways (0.1.0 starts
+  over V2 - Flyway ignores a future migration).
 - **Scheduling is off under `test`** (`SchedulingConfig`, `@Profile("!test")`): the registry pass
-  is wrapped in `ScheduledPass.bounded` (2 min, below its 5 min delay); the scheduler has the pool
+  is wrapped in `ScheduledPass.bounded` (2 min, below its 5 min delay), the state pass too (25 s, below its 30 s);
+  the scheduler has the pool
   of 10 of the library.
 - **No broker yet**: the notifications come with the availability monitor (HAS-383), with their
   password in `cholewa.required-properties`.
