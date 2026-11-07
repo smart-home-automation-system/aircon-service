@@ -107,7 +107,7 @@ public class StateTracker {
             attempted.put(unit.id(), at);
             return greeClient.status(unit)
                 .flatMap(status -> answered(unit, status, at).then(guard(unit, status)).thenReturn(status))
-                .onErrorResume(failure -> Mono.fromRunnable(() -> unanswered(unit, failure)).then(Mono.error(failure)));
+                .onErrorResume(failure -> Mono.fromRunnable(() -> unanswered(unit, failure, at)).then(Mono.error(failure)));
         });
     }
 
@@ -154,10 +154,10 @@ public class StateTracker {
             && status.targetTemperature() < CommandRules.COOLING_MIN;
     }
 
-    private void unanswered(final AirConditioner unit, final Throwable failure) {
+    private void unanswered(final AirConditioner unit, final Throwable failure, final LocalDateTime at) {
         final boolean wasAnswering = stateStore.of(unit.id()).map(UnitState::reachable).filter(Boolean.FALSE::equals)
             .isEmpty();
-        stateStore.unanswered(unit.id());
+        stateStore.unanswered(unit.id(), at);
         if (wasAnswering) {
             log.warn("Air conditioner {} ({}) does not answer: {}", unit.id(), unit.mac(), failure.getMessage());
         }

@@ -73,7 +73,7 @@ class StateTrackerTest {
 
         tracker.track().as(StepVerifier::create).verifyComplete();
 
-        assertThat(store.of(140)).contains(new UnitState(OFF, true, NOW));
+        assertThat(store.of(140)).contains(new UnitState(OFF, true, NOW, null));
         verify(repository).recordState(140, OFF, NOW);
         verify(repository).recordChange(140, OFF, ChangeSource.FIRST_READ, NOW);
     }
@@ -113,10 +113,10 @@ class StateTrackerTest {
             Mono.just(ON));
 
         tracker.restore().as(StepVerifier::create).verifyComplete();
-        assertThat(store.of(140)).contains(new UnitState(OFF, null, NOW.minusHours(1)));
+        assertThat(store.of(140)).contains(new UnitState(OFF, null, NOW.minusHours(1), null));
 
         tracker.track().as(StepVerifier::create).verifyComplete();
-        assertThat(store.of(140)).contains(new UnitState(OFF, false, NOW.minusHours(1)));
+        assertThat(store.of(140)).contains(new UnitState(OFF, false, NOW.minusHours(1), NOW));
 
         tracker.track().as(StepVerifier::create).verifyComplete();
         verify(repository).recordChange(140, ON, ChangeSource.REMOTE, NOW);
@@ -133,8 +133,8 @@ class StateTrackerTest {
         tracker.track().as(StepVerifier::create).verifyComplete();
         tracker.track().as(StepVerifier::create).verifyComplete();
 
-        assertThat(store.of(140)).contains(new UnitState(OFF, false, NOW));
-        assertThat(store.of(143)).contains(new UnitState(ON, true, NOW));
+        assertThat(store.of(140)).contains(new UnitState(OFF, false, NOW, NOW));
+        assertThat(store.of(143)).contains(new UnitState(ON, true, NOW, null));
     }
 
     //a unit never read that does not answer is unreachable, and nothing else is known of it
@@ -145,7 +145,7 @@ class StateTrackerTest {
 
         tracker.track().as(StepVerifier::create).verifyComplete();
 
-        assertThat(store.of(140)).contains(new UnitState(null, false, null));
+        assertThat(store.of(140)).contains(new UnitState(null, false, null, NOW));
         verify(repository, never()).recordState(anyLong(), any(), any());
     }
 
@@ -158,7 +158,7 @@ class StateTrackerTest {
 
         tracker.track().as(StepVerifier::create).verifyComplete();
 
-        assertThat(store.of(140)).contains(new UnitState(OFF, true, NOW));
+        assertThat(store.of(140)).contains(new UnitState(OFF, true, NOW, null));
     }
 
     //the unit read longest ago first: a pass cut by its bound reads the others first the next time

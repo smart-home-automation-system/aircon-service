@@ -11,7 +11,8 @@ import java.time.LocalDateTime;
 //not known is left out, never a default - a unit not read yet answers its id, name and room alone; reachable is left out
 //until the first read after a start; updatedAt is the time of the last read that answered (house time). Since HAS-382:
 //lastCommandConfirmed - whether the read after the last command showed it (left out while it is being confirmed, and
-//before any), minimumRestoredAt - when the guard last raised a cooling target to 22 C
+//before any), minimumRestoredAt - when the guard last raised a cooling target to 22 C. Since HAS-383: unreachableSince -
+//since when the unit does not answer (with reachable false; counted anew after a start)
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record AirconReply(
     long id,
@@ -29,6 +30,7 @@ public record AirconReply(
     Boolean sleep,
     Boolean display,
     Boolean reachable,
+    LocalDateTime unreachableSince,
     LocalDateTime updatedAt,
     Boolean lastCommandConfirmed,
     LocalDateTime minimumRestoredAt

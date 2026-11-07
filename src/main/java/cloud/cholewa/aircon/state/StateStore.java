@@ -21,18 +21,20 @@ public class StateStore {
 
     //a read that answered; answers what was known before it
     Optional<UnitState> answered(final long unitId, final UnitStatus status, final LocalDateTime at) {
-        return Optional.ofNullable(states.put(unitId, new UnitState(status, true, at)));
+        return Optional.ofNullable(states.put(unitId, UnitState.answering(status, at)));
     }
 
-    //a read that did not answer: what the unit reported before stays, marked unreachable; a unit never read stays unknown
-    //but unreachable
-    void unanswered(final long unitId) {
-        states.compute(unitId, (id, known) -> known == null ? new UnitState(null, false, null) : known.unreachable());
+    //a read that did not answer at a time: what the unit reported before stays, marked unreachable since the first such
+    //read; a unit never read stays unknown but unreachable
+    void unanswered(final long unitId, final LocalDateTime at) {
+        states.compute(unitId, (id, known) -> known == null
+            ? new UnitState(null, false, null, at)
+            : known.unreachable(at));
     }
 
     //the rows of aircon_state at a start: what each unit reported, not known to be reachable until its first read; a unit
     //already read in this run keeps what it reported now
     void restore(final StoredState stored) {
-        states.putIfAbsent(stored.unitId(), new UnitState(stored.status(), null, stored.lastCheckedAt()));
+        states.putIfAbsent(stored.unitId(), new UnitState(stored.status(), null, stored.lastCheckedAt(), null));
     }
 }

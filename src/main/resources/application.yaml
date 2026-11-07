@@ -15,6 +15,25 @@ spring:
     user: ${database.username}
     password: ${database.password}
     enabled: on
+  # The one connection of the service (HAS-383): the virtual host of the notifications, where it publishes the alerts
+  # of the availability monitor (NotificationPublisher of cholewa-commons) - the shape of appliance-service: it consumes
+  # nothing, so no second connection and no copy of NotificationRabbitConfig. Confirms, returns and the mandatory flag
+  # are what the publisher needs to know a notification reached a queue; it refuses to start without them
+  rabbitmq:
+    host: rabbitmq-headless
+    port: 5672
+    username: notification
+    # no default on purpose: cholewa.required-properties refuses the start without it
+    password: ${rabbitmq-password}
+    virtual-host: /notification
+    connection-timeout: 10s
+    requested-heartbeat: 10s
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+      # defaults to false; without it the trace breaks at the broker
+      observation-enabled: true
 
 database:
   host: ${database-host:localhost}
@@ -46,6 +65,11 @@ aircon:
     timeout: PT3S
     retries: 2
     rebind-after: 3
+  # the availability monitor (HAS-383): a unit that has not answered for offline-after is an alert on the technical
+  # channel, named again every reminder-every while out, an info on its return
+  monitor:
+    offline-after: PT5M
+    reminder-every: PT1H
   # the commands (HAS-382): read back confirm-after later; the change a read shows within expect-for is the sender's, after
   # it the remote's (a bare duration is seconds)
   command:
@@ -57,6 +81,11 @@ cholewa:
   required-properties:
     - property: database.password
       variable: database-password
+    - property: spring.rabbitmq.password
+      variable: rabbitmq-password
+  notification:
+    enabled: true
+    env: prod
 
 server:
   port: 6200
@@ -97,6 +126,13 @@ spring:
   config:
     activate:
       on-profile: local
+  rabbitmq:
+    host: localhost
+
+cholewa:
+  notification:
+    # a run outside the cluster publishes into the dev queue, never to the channel of the house
+    env: dev
 
 internal:
   service:
@@ -124,6 +160,15 @@ spring:
       on-profile: test
   flyway:
     enabled: false
+  # nothing listens here: a test that reaches the broker fails instead of publishing
+  rabbitmq:
+    host: localhost
+    port: 1
+    password: test
+
+cholewa:
+  notification:
+    env: dev
 
 # the pool opens nothing eagerly, and Flyway is off: a context test never reaches a database
 database:
