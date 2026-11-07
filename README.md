@@ -33,12 +33,12 @@ commands of the dashboard and keep the rules of the house (open windows, a minim
 cooling, the server room, the empty house, a lost grid).
 
 **Today**: the units of the device registry (the five of the house since HAS-393), the driver of the Gree
-protocol (HAS-380) and the state of every unit, read every 30 s and stored (HAS-381), served by three reads.
+protocol (HAS-380), the state of every unit, read every 30 s and stored (HAS-381), served by three reads, and the
+commands with the minimum of 22 °C in cooling - in the API and against the remote (HAS-382).
 What comes next:
 
 | Task | What |
 |---|---|
-| HAS-382 | the commands, with the minimum of 22 °C in cooling |
 | HAS-383 to HAS-391 | the availability monitor, the open windows, the empty house and a lost grid, the rules per unit, the power of the plugs, the run hours |
 
 # The Gree protocol
@@ -86,6 +86,14 @@ Under the base path `/home/aircon`, routed by the gateway by path, every method 
 | `GET` | `/home/aircon` | every air conditioner of the registry (the kind `air conditioner`, switched on) in its order, with its state as last read (every 30 s): `id`, `name`, `room`, `power`, `mode` (`auto`, `cool`, `dry`, `fan`, `heat`), `targetTemperature` and `roomTemperature` in °C, `fanSpeed` (`auto`, `low`, `medium-low`, `medium`, `medium-high`, `high`), `swingVertical` / `swingHorizontal` (the position codes of the unit), `quiet`, `turbo`, `sleep`, `display`, `reachable` (whether the last read answered) and `updatedAt` (house time of the last read that answered). **A field not known is left out** - a unit not read yet answers `id`, `name` and `room` alone, `reachable` is left out after a start until the first read; a unit that stopped answering keeps what it reported, with `reachable: false`. `503 REGISTRY_UNAVAILABLE` until the registry was read once |
 | `GET` | `/home/aircon/{id}` | one unit, the same fields; `404 NOT_FOUND_AIRCON` for an id no air conditioner of the registry has |
 | `GET` | `/home/aircon/rooms/{room}` | the units of a room by the name of the registry (`office`, `hall up`); `404 NOT_FOUND_ROOM` for a room without a unit, or a name that is no room |
+| `POST` | `/home/aircon/{id}?source=` | **a command to the unit - a write to the house**: a JSON body of optional fields in the words of the reads (`power`, `mode`, `targetTemperature`, `fanSpeed`, `swingVertical`, `swingHorizontal`, `quiet`, `turbo`, `sleep`, `display`); `source` is `dashboard` (the default), `rule`, `window`, `empty-house` or `grid-outage`. `202` once the unit took it; read back 2 s later - not taken, sent once more and read again, never a third time - and told as `lastCommandConfirmed` in the reads; the change in the history under the source. `400 INVALID_COMMAND` with the reason (the rules below, an empty command, another source), `502 DEVICE_FAILED` when the unit did not answer (it may have taken it all the same), `404 NOT_FOUND_AIRCON`, `503 REGISTRY_UNAVAILABLE` |
+| `POST` | `/home/aircon/rooms/{room}?source=` | the same body for every unit of the room, one after the other; `202` with what each came to - `[{"id", "sent", "code"}]` (`code` for one not sent: `INVALID_COMMAND`, `DEVICE_FAILED`); `404 NOT_FOUND_ROOM` |
+
+The rules of a command (`CommandRules`, copied by the dashboard): **cooling never below 22 °C**, a target of 16 to 30 °C
+in whole degrees, turbo and quiet not in `dry` or `fan` - judged against the mode and the target the unit will have.
+**The guard against the remote and the Gree app**: a read that sees a unit cooling below 22 °C writes 22 °C back in the
+same pass (the change written as `minimum-restored`, `minimumRestoredAt` in the reads); a unit that is off is left
+alone - its target cools nothing.
 
 # Database
 
@@ -99,3 +107,5 @@ services needs `GRANT USAGE, CREATE ON SCHEMA public` before the first start, or
   start), and `aircon_state_change`, a row for every change of the power, the mode, the target or the fan with
   who made it (`first-read`, `remote`, and the senders of the tasks to come - checked by the table). Rehearsed on
   2026-11-07 on a throwaway PostgreSQL: V2 over the database of 0.1.0, and 0.1.0 starts over V2 (rollback safe).
+- `V3` (HAS-382): `minimum-restored`, the source of the guard, added to the check of `aircon_state_change`. Rehearsed the
+  same way: over the rows of 0.2.0, and 0.2.0 starts over V3.
