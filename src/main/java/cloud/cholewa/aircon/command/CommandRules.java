@@ -101,7 +101,7 @@ public final class CommandRules {
     }
 
     private static Integer flag(final Boolean value) {
-        return value == null ? null : (value ? 1 : 0);
+        return Optional.ofNullable(value).map(on -> Boolean.TRUE.equals(on) ? 1 : 0).orElse(null);
     }
 
     private static void put(final Map<String, Integer> wire, final String column, final Integer value) {
