@@ -27,6 +27,14 @@ public class AirconException extends RuntimeException {
             "No air conditioner " + id + " is registered");
     }
 
+    public static AirconException invalidCommand(final String reason) {
+        return new AirconException(HttpStatus.BAD_REQUEST, AirconError.INVALID_COMMAND, reason);
+    }
+
+    public static AirconException deviceFailed(final String message) {
+        return new AirconException(HttpStatus.BAD_GATEWAY, AirconError.DEVICE_FAILED, message);
+    }
+
     //the room is never echoed: it is a text of the request
     public static AirconException roomNotFound() {
         return new AirconException(HttpStatus.NOT_FOUND, AirconError.NOT_FOUND_ROOM,

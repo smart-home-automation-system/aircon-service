@@ -1,8 +1,12 @@
 package cloud.cholewa.aircon.state;
 
+import cloud.cholewa.aircon.command.CommandOutcomes;
+import cloud.cholewa.aircon.command.CommandProperties;
+import cloud.cholewa.aircon.command.CommandRules;
 import cloud.cholewa.aircon.driver.GreeClient;
 import cloud.cholewa.aircon.registry.AirConditioner;
 import cloud.cholewa.aircon.registry.UnitRegistry;
+import cloud.cholewa.aircon.unit.Mode;
 import cloud.cholewa.aircon.unit.UnitStatus;
 import cloud.cholewa.commons.scheduling.ScheduledPass;
 import lombok.RequiredArgsConstructor;
@@ -26,8 +30,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 //The state of every unit (HAS-381): each unit of the registry read every 30 s, one after the other, the one read longest
 //ago first - a pass cut by its bound reads the others first the next time. A read that answered is the state in memory,
 //the current row of aircon_state (moved only when a value changed) and, when the power, the mode, the target or the fan
-//changed, a row of aircon_state_change - the remote's, since the service sends nothing yet; the first read of a unit
-//starts its history. A read that did not answer leaves what the unit reported before, marked unreachable - a WARN when
+//changed, a row of aircon_state_change - under the sender of a command the read is expected to show (HAS-382), else
+//the remote's; the first read of a unit starts its history. A unit cooling below 22 C - set with the remote or the Gree
+//app - is raised to 22 C within the same pass (the guard of HAS-382; the change then written as minimum-restored). A read that did not answer leaves what the unit reported before, marked unreachable - a WARN when
 //a unit stops answering, an INFO when it answers again, never one a pass.
 //At the start, before the first read, the rows of aircon_state are the state - not known to be reachable until read. A
 //failed write to the database is a WARN: the state in memory holds, the next change is written whole
@@ -44,6 +49,11 @@ public class StateTracker {
     private final StateStore stateStore;
     private final AirconStateRepository repository;
     private final Clock clock;
+    private final CommandOutcomes commandOutcomes;
+    private final CommandProperties commandProperties;
+    //the target of the minimum in cooling, in degrees C (TemUn 0)
+    private static final Map<String, Integer> RAISE_TO_MINIMUM = Map.of("SetTem", CommandRules.COOLING_MIN, "TemUn", 0);
+
     private final AtomicBoolean restored = new AtomicBoolean();
     private final AtomicBoolean restoreFailedBefore = new AtomicBoolean();
     private final Map<Long, LocalDateTime> attempted = new ConcurrentHashMap<>();
@@ -86,12 +96,18 @@ public class StateTracker {
     }
 
     private Mono<Void> read(final AirConditioner unit) {
+        return readNow(unit).then().onErrorResume(failure -> Mono.empty());
+    }
+
+    //a read of a unit now, out of the pass too - the confirmation of a command (HAS-382): its status recorded as every
+    //read is; a unit that does not answer is unreachable, and the failure is passed on
+    public Mono<UnitStatus> readNow(final AirConditioner unit) {
         return Mono.defer(() -> {
             final LocalDateTime at = LocalDateTime.now(clock);
             attempted.put(unit.id(), at);
             return greeClient.status(unit)
-                .flatMap(status -> answered(unit, status, at))
-                .onErrorResume(failure -> Mono.fromRunnable(() -> unanswered(unit, failure)));
+                .flatMap(status -> answered(unit, status, at).then(guard(unit, status)).thenReturn(status))
+                .onErrorResume(failure -> Mono.fromRunnable(() -> unanswered(unit, failure)).then(Mono.error(failure)));
         });
     }
 
@@ -100,12 +116,42 @@ public class StateTracker {
         if (before.map(UnitState::reachable).filter(Boolean.FALSE::equals).isPresent()) {
             log.info("Air conditioner {} ({}) answers again", unit.id(), unit.mac());
         }
-        final Optional<ChangeSource> change = changeOf(before.map(UnitState::status).orElse(null), status);
+        final Optional<ChangeSource> change = changeOf(before.map(UnitState::status).orElse(null), status)
+            .map(source -> source == ChangeSource.REMOTE
+                ? commandOutcomes.takePending(unit.id(), at).orElse(ChangeSource.REMOTE)
+                : source);
         return repository.recordState(unit.id(), status, at)
             .then(Mono.justOrEmpty(change).flatMap(source -> repository.recordChange(unit.id(), status, source, at)))
             .onErrorResume(failure -> Mono.fromRunnable(() -> log.warn(
                 "The state of air conditioner {} could not be stored, it stays in memory: {}", unit.id(),
                 failure.toString())));
+    }
+
+    //cooling below the minimum - the remote or the Gree app can set 16 C: the target written back to 22 C at once, the
+    //change of the next read written as minimum-restored. Only while the unit is on: a target of a unit that is off
+    //cools nothing, and the remote cannot set one then
+    private Mono<Void> guard(final AirConditioner unit, final UnitStatus status) {
+        return Mono.just(status)
+            .filter(StateTracker::coolsBelowMinimum)
+            .flatMap(below -> greeClient.command(unit, RAISE_TO_MINIMUM)
+                .then(Mono.fromRunnable(() -> raised(unit, below))))
+            .onErrorResume(failure -> Mono.fromRunnable(() -> log.warn(
+                "Air conditioner {} cools at {} C and could not be raised to {} C: {}", unit.id(),
+                status.targetTemperature(), CommandRules.COOLING_MIN, failure.getMessage())))
+            .then();
+    }
+
+    private void raised(final AirConditioner unit, final UnitStatus below) {
+        final LocalDateTime at = LocalDateTime.now(clock);
+        commandOutcomes.expect(unit.id(), ChangeSource.MINIMUM_RESTORED, at.plus(commandProperties.expectFor()));
+        commandOutcomes.minimumRestored(unit.id(), at);
+        log.info("Air conditioner {} cooled at {} C, raised to the minimum of {} C", unit.id(),
+            below.targetTemperature(), CommandRules.COOLING_MIN);
+    }
+
+    static boolean coolsBelowMinimum(final UnitStatus status) {
+        return Boolean.TRUE.equals(status.power()) && status.mode() == Mode.COOL && status.targetTemperature() != null
+            && status.targetTemperature() < CommandRules.COOLING_MIN;
     }
 
     private void unanswered(final AirConditioner unit, final Throwable failure) {

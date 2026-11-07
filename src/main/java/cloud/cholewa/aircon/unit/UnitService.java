@@ -1,6 +1,7 @@
 package cloud.cholewa.aircon.unit;
 
 import cloud.cholewa.aircon.api.model.AirconReply;
+import cloud.cholewa.aircon.command.CommandOutcomes;
 import cloud.cholewa.aircon.error.AirconException;
 import cloud.cholewa.aircon.registry.AirConditioner;
 import cloud.cholewa.aircon.registry.UnitRegistry;
@@ -21,6 +22,7 @@ public class UnitService {
 
     private final UnitRegistry unitRegistry;
     private final StateStore stateStore;
+    private final CommandOutcomes commandOutcomes;
 
     public Mono<List<AirconReply>> units() {
         return registered().map(units -> units.stream().map(this::replyOf).toList());
@@ -67,6 +69,8 @@ public class UnitService {
             status.map(UnitStatus::sleep).orElse(null),
             status.map(UnitStatus::display).orElse(null),
             state.map(UnitState::reachable).orElse(null),
-            state.map(UnitState::updatedAt).orElse(null));
+            state.map(UnitState::updatedAt).orElse(null),
+            commandOutcomes.lastCommandConfirmed(unit.id()).orElse(null),
+            commandOutcomes.minimumRestoredAt(unit.id()).orElse(null));
     }
 }

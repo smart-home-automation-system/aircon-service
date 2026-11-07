@@ -3,7 +3,8 @@
 The air conditioners of the house (epic HAS-376): five Gree indoor units over their local protocol -
 state, commands and the rules of the house (open windows, 22 °C minimum in cooling, sanctum below
 25 °C, the empty house, a lost grid, run hours). Scaffolded by HAS-380 with the units of the
-registry and the driver; the state of every unit since HAS-381; the features come with HAS-382 onwards.
+registry and the driver; the state of every unit since HAS-381; the commands and the guard of 22 °C since HAS-382;
+the features come with HAS-383 onwards.
 
 Part of the smart-home-automation-system organization — org-wide conventions, the
 repository map and working rules come from the workspace-level context
@@ -83,6 +84,20 @@ firmware `362001065279+U-WB05RT13V1.45.bin`, `ver V3.4.M`, mid 10001:
   rows of `aircon_state` are the state, `reachable` not known. A failed write is a WARN, the memory holds.
   **The reads of the API answer the state in memory** - nothing reads a unit for a request; a field not known is
   left out (`@JsonInclude(NON_NULL)` of `AirconReply`), never a default.
+- **The commands** (HAS-382, `command/`): `CommandRules` is **a pure class the dashboard copies** - 16-30 °C, cooling
+  never below 22 °C, turbo and quiet not in dry or fan, judged against the mode and the target the unit will have (what
+  the command sets, else what it reported); a rule changed there is changed in the dashboard. `CommandService` sends a
+  command once (the driver's own retries aside; `DEVICE_FAILED` when it got no answer - it may have taken it), answers
+  `202`, then reads the unit `confirm-after` (2 s) later on its own (`StateTracker.readNow`, the subscription logs what
+  it meets): taken - `lastCommandConfirmed: true`; not taken - sent once more and read again, never a third time before
+  the next command. **The change a read shows within `expect-for` (60 s) of a command is the sender's**
+  (`CommandOutcomes.expect` / `takePending`), so the history never writes a command of the dashboard as the remote's.
+  The room command sends to every unit of the room one after the other and answers what each came to.
+- **The guard of 22 °C** (HAS-382): a read that sees a unit **on**, cooling below 22 °C (the remote and the Gree app
+  can set 16 °C) writes `SetTem` 22 back at once, in the same pass; the change the next read shows is written as
+  `minimum-restored` (`V3`), `minimumRestoredAt` in the reads. A unit that is off is left alone (the remote cannot set
+  its target then, and it cools nothing). The first real command through the driver was the owner's power-off of the
+  office on 2026-11-07 (`Pow` 0, taken at once).
 - **The words of the API** (HAS-381, the task): `fanSpeed` `medium-low` / `medium-high`, and `display` for the
   light of the panel (`Lig`) - 0.1.0 said `medium low` and `light`, read by nobody. The firmware is read but
   neither stored nor answered.
@@ -93,7 +108,8 @@ firmware `362001065279+U-WB05RT13V1.45.bin`, `ver V3.4.M`, mid 10001:
 - **`V1` is an empty baseline** (only a comment): Flyway applies it and writes its history table,
   so the start has no `No migrations found` WARN and proves the grant. **`V2`** (HAS-381) creates the two
   tables of the state; rehearsed with the released 0.1.0 image on a throwaway PostgreSQL both ways (0.1.0 starts
-  over V2 - Flyway ignores a future migration).
+  over V2 - Flyway ignores a future migration). **`V3`** (HAS-382) adds `minimum-restored` to the check of the history;
+  rehearsed the same way (0.2.0 starts over V3).
 - **Scheduling is off under `test`** (`SchedulingConfig`, `@Profile("!test")`): the registry pass
   is wrapped in `ScheduledPass.bounded` (2 min, below its 5 min delay), the state pass too (25 s, below its 30 s);
   the scheduler has the pool
