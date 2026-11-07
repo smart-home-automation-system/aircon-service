@@ -13,6 +13,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 import reactor.test.StepVerifier;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.net.SocketException;
@@ -89,7 +90,7 @@ class GreeClientTest {
 
         assertThat(unit.requests()).extracting(request -> request.path("t").asString())
             .containsExactly("bind", "status");
-        assertThat(unit.requests().get(1).path("cols").valueStream().map(column -> column.asString()).toList())
+        assertThat(unit.requests().get(1).path("cols").valueStream().map(JsonNode::asString).toList())
             .isEqualTo(GreeStatusMapper.COLUMNS);
     }
 
@@ -169,11 +170,11 @@ class GreeClientTest {
 
         client.command(UNIT, values).as(StepVerifier::create).verifyComplete();
 
-        final tools.jackson.databind.JsonNode command = unit.requests().get(1);
+        final JsonNode command = unit.requests().get(1);
         assertThat(command.path("t").asString()).isEqualTo("cmd");
-        assertThat(command.path("opt").valueStream().map(value -> value.asString()).toList())
+        assertThat(command.path("opt").valueStream().map(JsonNode::asString).toList())
             .containsExactly("Pow", "SetTem");
-        assertThat(command.path("p").valueStream().map(value -> value.asInt()).toList()).containsExactly(1, 23);
+        assertThat(command.path("p").valueStream().map(JsonNode::asInt).toList()).containsExactly(1, 23);
     }
 
     @Test

@@ -9,7 +9,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.Function;
+import java.util.function.IntFunction;
 
 //The status of a unit from its "dat" answer (HAS-380): the values come by the index of the columns asked for. The wire
 //stays here - the rest of the service sees UnitStatus. A column the unit left out is null; a value that is not the
@@ -71,7 +71,7 @@ final class GreeStatusMapper {
     }
 
     private static <T> T enumOf(final Map<String, Object> values, final String column, final String mac,
-                                final Function<Integer, Optional<T>> ofWire) {
+                                final IntFunction<Optional<T>> ofWire) {
         return Optional.ofNullable(number(values, column, mac))
             .map(number -> ofWire.apply(number).orElseThrow(() ->
                 new GreeCallException("The column " + column + " of the unit " + mac + " has the unknown value " + number)))

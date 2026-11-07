@@ -65,12 +65,15 @@ class GreeStatusMapperTest {
     @Test
     void should_refuse_an_answer_that_is_not_a_status_of_this_unit() {
         final List<Object> values = List.of(1, 1, 22, 0, 0, 0, 0, 0, 0, 0, 0, 64, "hid");
-        assertThatThrownBy(() -> GreeStatusMapper.map(new GreeReply("res", MAC, null, 200, null,
-            GreeStatusMapper.COLUMNS, values, null, null, null), MAC)).isInstanceOf(GreeCallException.class);
-        assertThatThrownBy(() -> GreeStatusMapper.map(new GreeReply("dat", "02005e0000ff", null, 200, null,
-            GreeStatusMapper.COLUMNS, values, null, null, null), MAC)).isInstanceOf(GreeCallException.class);
-        assertThatThrownBy(() -> GreeStatusMapper.map(new GreeReply("dat", MAC, null, 400, null,
-            GreeStatusMapper.COLUMNS, values, null, null, null), MAC)).isInstanceOf(GreeCallException.class);
+        final GreeReply result = new GreeReply("res", MAC, null, 200, null, GreeStatusMapper.COLUMNS, values, null,
+            null, null);
+        final GreeReply otherUnit = new GreeReply("dat", "02005e0000ff", null, 200, null, GreeStatusMapper.COLUMNS,
+            values, null, null, null);
+        final GreeReply refused = new GreeReply("dat", MAC, null, 400, null, GreeStatusMapper.COLUMNS, values, null,
+            null, null);
+        assertThatThrownBy(() -> GreeStatusMapper.map(result, MAC)).isInstanceOf(GreeCallException.class);
+        assertThatThrownBy(() -> GreeStatusMapper.map(otherUnit, MAC)).isInstanceOf(GreeCallException.class);
+        assertThatThrownBy(() -> GreeStatusMapper.map(refused, MAC)).isInstanceOf(GreeCallException.class);
         assertThatThrownBy(() -> GreeStatusMapper.map(dat(List.of(1, 1)), MAC))
             .hasMessage("The status of the unit 02005e0000a1 is not the model");
     }

@@ -32,6 +32,9 @@ public final class GreeCipher {
     public record Sealed(String pack, String tag) {
     }
 
+    //ECB is the cipher of the protocol, not a choice: a unit answers its scan with nothing else, and the scan carries
+    //no secret - only the MAC the unit broadcasts anyway (HAS-380)
+    @SuppressWarnings("java:S5542")
     static String encryptV1(final String key, final String json) {
         try {
             final Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
@@ -42,6 +45,8 @@ public final class GreeCipher {
         }
     }
 
+    //the scan answer of a unit, ECB as the protocol has it (see encryptV1)
+    @SuppressWarnings("java:S5542")
     static String decryptV1(final String key, final String pack) {
         try {
             final Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
