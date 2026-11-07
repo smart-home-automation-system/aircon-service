@@ -36,12 +36,12 @@ cooling, the server room, the empty house, a lost grid).
 protocol (HAS-380), the state of every unit, read every 30 s and stored (HAS-381), served by three reads, and the
 commands with the minimum of 22 °C in cooling - in the API and against the remote (HAS-382), and the availability
 monitor on the technical channel of Discord (HAS-383), and the open windows: a window open in the room stops the unit,
-the closed window sets it back (HAS-384).
+the closed window sets it back (HAS-384), the empty house and a lost grid switch the units off (HAS-385).
 What comes next:
 
 | Task | What |
 |---|---|
-| HAS-385 to HAS-391 | the empty house and a lost grid, the rules per unit, the power of the plugs, the run hours |
+| HAS-386 to HAS-391 | the rules per unit, the power of the plugs, the run hours |
 
 # The Gree protocol
 
@@ -65,8 +65,8 @@ waits 3 s for its answer and is sent again up to twice (`aircon.gree.*`).
 - **The broker**: one connection, `/notification` (user `notification`) - the alerts of the availability monitor
   through `NotificationPublisher` of `cholewa-commons`. **`rabbitmq-password` is mandatory** (`cholewa.required-properties`);
   a local run publishes into the dev queue (`cholewa.notification.env: dev`).
-- Build: `mvn verify` (JDK 21) - **needs a running Docker**: `AirconStateRepositoryTest` and `WindowHoldRepositoryTest` run
-  their SQL against a PostgreSQL of Testcontainers. The driver is tested against a fake unit on a UDP port of the
+- Build: `mvn verify` (JDK 21) - **needs a running Docker**: `AirconStateRepositoryTest`, `WindowHoldRepositoryTest` and
+  `RuleRunRepositoryTest` run their SQL against a PostgreSQL of Testcontainers. The driver is tested against a fake unit on a UDP port of the
   loopback, with a made-up MAC and key.
 - Ports: local profile `6015` (management `8015`); in the deployed `home` profile the service
   listens on `6200` and Actuator on `8200` like every service in the cluster. The ingress routes
@@ -81,7 +81,8 @@ waits 3 s for its answer and is sent again up to twice (`aircon.gree.*`).
   `local` and is off under `test`. **A local run with the real values is the production database.**
 - A local run reads the registry of `database-service` on `localhost:6005` and binds the units it
   finds - a read, but a real one, of the units of the house; it reads the windows from `heating-service` on
-  `localhost:6002`, and **stops and sets back the real units** when a window there holds.
+  `localhost:6002`, who is at home from `presence-service` on `localhost:6009` and the grid from `energy-service` on
+  `localhost:6014`, and **switches the real units** when a window holds, the house is empty or the grid is lost.
 
 # API
 
@@ -91,6 +92,7 @@ Under the base path `/home/aircon`, routed by the gateway by path, every method 
 |---|---|---|
 | `GET` | `/home/aircon` | every air conditioner of the registry (the kind `air conditioner`, switched on) in its order, with its state as last read (every 30 s): `id`, `name`, `room`, `power`, `mode` (`auto`, `cool`, `dry`, `fan`, `heat`), `targetTemperature` and `roomTemperature` in °C, `fanSpeed` (`auto`, `low`, `medium-low`, `medium`, `medium-high`, `high`), `swingVertical` / `swingHorizontal` (the position codes of the unit), `quiet`, `turbo`, `sleep`, `display`, `reachable` (whether the last read answered), `unreachableSince` (since when it does not answer - HAS-383), `updatedAt` (house time of the last read that answered), `lastCommandConfirmed`, `minimumRestoredAt` (HAS-382) and `window` (HAS-384: `state` - `open`, `closed`, `no sensor`, `unknown` -, `openSince` and `hold` as heating-service last gave them for the room, left out while it does not answer; `restoreUntil` while the window holds the unit stopped). **A field not known is left out** - a unit not read yet answers `id`, `name` and `room` alone, `reachable` is left out after a start until the first read; a unit that stopped answering keeps what it reported, with `reachable: false`. `503 REGISTRY_UNAVAILABLE` until the registry was read once |
 | `GET` | `/home/aircon/{id}` | one unit, the same fields; `404 NOT_FOUND_AIRCON` for an id no air conditioner of the registry has |
+| `GET` | `/home/aircon/automation` | the empty house and the grid as the last pass of the automation read them (HAS-385): `{"emptyHouse": {"empty", "since", "actedAt"}, "grid": {"state", "actedAt"}}` - `empty` whether nobody is at home, `since` the last member to go, `state` `present` / `lost`, `actedAt` when the units were switched off for this empty house or outage; a field not known is left out (both objects empty before the first pass) |
 | `GET` | `/home/aircon/rooms/{room}` | the units of a room by the name of the registry (`office`, `hall up`); `404 NOT_FOUND_ROOM` for a room without a unit, or a name that is no room |
 | `POST` | `/home/aircon/{id}?source=` | **a command to the unit - a write to the house**: a JSON body of optional fields in the words of the reads (`power`, `mode`, `targetTemperature`, `fanSpeed`, `swingVertical`, `swingHorizontal`, `quiet`, `turbo`, `sleep`, `display`); `source` is `dashboard` (the default), `rule`, `window`, `empty-house` or `grid-outage`. `202` once the unit took it; read back 2 s later - not taken, sent once more and read again, never a third time - and told as `lastCommandConfirmed` in the reads; the change in the history under the source. `400 INVALID_COMMAND` with the reason (the rules below, an empty command, another source), `502 DEVICE_FAILED` when the unit did not answer (it may have taken it all the same), `404 NOT_FOUND_AIRCON`, `503 REGISTRY_UNAVAILABLE` |
 | `POST` | `/home/aircon/rooms/{room}?source=` | the same body for every unit of the room, one after the other; `202` with what each came to - `[{"id", "sent", "code"}]` (`code` for one not sent: `INVALID_COMMAND`, `DEVICE_FAILED`); `404 NOT_FOUND_ROOM` |
@@ -121,6 +123,10 @@ services needs `GRANT USAGE, CREATE ON SCHEMA public` before the first start, or
   mode, the target, the fan, the louvres, quiet, turbo, sleep - and how it ended (`restored`, `expired`, `cancelled`,
   `refused`); one open row per unit (a partial unique index); a stop that ended is kept 90 days. Rehearsed the same way
   with 0.4.0.
+- `V6` (HAS-385): `aircon_rule_run`, a row for every command the service sent on its own (the window, the empty house, a
+  lost grid, the rules to come): its source, the unit, the episode it acted on, the command and what it came to (`sent`,
+  `failed`, `refused`); kept 90 days; and `aircon_automation_episode`, the episode the empty house and a lost grid acted
+  on last, one row a source. Rehearsed the same way with 0.5.0.
 
 # The availability monitor
 
@@ -140,3 +146,20 @@ The windows closed within `aircon.window.restore-within` (1 h) of the stop **set
 A room heating-service does not know, `no sensor`, `unknown` or heating-service not answering **never stops a
 unit**, and never sets one back - the stop then waits, at most until `restore-within`. A command the unit did not
 take is sent again the next minute; a unit that does not answer is sent nothing until it answers again.
+
+# The empty house and a lost grid
+
+Every minute (HAS-385) who is at home is read from `presence-service` (`GET /home/presence/residents/presence`) and the
+grid from `energy-service` (`GET /home/energy/status`, >= 0.4.0), both over k8s DNS; a read that fails or is slow is not
+known, and **what is not known never acts**.
+
+- **Nobody at home** for `aircon.empty-house.after` (10 min, counted from the last member to go): every unit cooling
+  (`cool`, `dry`, `fan`, `auto`) outside `aircon.empty-house.exempt-rooms` (`sanctum`, the server room) is switched off,
+  source `empty-house`. Heating is left alone.
+- **The grid lost**: every unit that is on is switched off, heating and sanctum included, source `grid-outage`.
+- **Once per episode** - an empty house is known by when the last member went, an outage by when the grid was lost; the
+  units on when it begins are the ones it switches off, each sent the command every minute until it took it while the
+  episode lasts (one that does not answer waits); a unit switched on during it is left alone. A restart does not act
+  twice (the episode is stored in `aircon_automation_episode` when it begins, a unit on or not); a unit not yet taken
+  at a restart is not tried again. **Nothing is switched back on**: the return is the household's - and while the house
+  is empty or the grid lost, a closed window does not set a stopped unit back either (its stop ends as `expired`).
