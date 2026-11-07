@@ -35,6 +35,14 @@ public class AirconException extends RuntimeException {
         return new AirconException(HttpStatus.BAD_GATEWAY, AirconError.DEVICE_FAILED, message);
     }
 
+    public static AirconException invalidRule(final String reason) {
+        return new AirconException(HttpStatus.BAD_REQUEST, AirconError.INVALID_RULE, reason);
+    }
+
+    public static AirconException ruleNotFound(final long id) {
+        return new AirconException(HttpStatus.NOT_FOUND, AirconError.NOT_FOUND_RULE, "Air conditioner " + id + " has no rule");
+    }
+
     //the room is never echoed: it is a text of the request
     public static AirconException roomNotFound() {
         return new AirconException(HttpStatus.NOT_FOUND, AirconError.NOT_FOUND_ROOM,

@@ -1,6 +1,9 @@
 package cloud.cholewa.aircon.api;
 
 import cloud.cholewa.aircon.api.model.AirconReply;
+import cloud.cholewa.aircon.api.model.AirconRule;
+import cloud.cholewa.aircon.api.model.RuleBody;
+import cloud.cholewa.aircon.rule.RuleService;
 import cloud.cholewa.aircon.api.model.AutomationReply;
 import cloud.cholewa.aircon.automation.AutomationService;
 import cloud.cholewa.aircon.api.model.CommandRequest;
@@ -23,6 +26,7 @@ import org.springframework.test.json.JsonCompareMode;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import reactor.core.publisher.Mono;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -50,6 +54,54 @@ class AirconControllerTest {
 
     @MockitoBean
     private AutomationService automationService;
+
+    @MockitoBean
+    private RuleService ruleService;
+
+    private static final AirconRule SANCTUM_RULE = new AirconRule(144, new AirconRule.KeepBelow(true,
+        new BigDecimal("25.0"), new BigDecimal("1.0"), 22), new AirconRule.HeatBySchedule(false),
+        LocalDateTime.of(2026, 11, 7, 20, 0));
+
+    //the rule of a unit (HAS-386), the contract of the editor of the dashboard
+    @Test
+    void should_answer_the_rules() {
+        when(ruleService.rules()).thenReturn(Mono.just(List.of(SANCTUM_RULE)));
+
+        webTestClient.get().uri("/rules")
+            .exchange()
+            .expectStatus().isOk()
+            .expectBody().json("""
+                [{"unitId": 144, "keepBelow": {"enabled": true, "threshold": 25.0, "hysteresis": 1.0, "target": 22},
+                  "heatBySchedule": {"enabled": false}, "updatedAt": "2026-11-07T20:00:00"}]""", JsonCompareMode.STRICT);
+    }
+
+    @Test
+    void should_write_a_rule_whole() {
+        final RuleBody body = new RuleBody(new RuleBody.KeepBelow(true, new BigDecimal("25"), null, 22), null);
+        when(ruleService.save(144, body)).thenReturn(Mono.just(SANCTUM_RULE));
+
+        webTestClient.put().uri("/144/rules")
+            .contentType(MediaType.APPLICATION_JSON)
+            .bodyValue("{\"keepBelow\": {\"enabled\": true, \"threshold\": 25, \"target\": 22}}")
+            .exchange()
+            .expectStatus().isOk()
+            .expectBody().jsonPath("$.keepBelow.hysteresis").isEqualTo(1.0);
+    }
+
+    @Test
+    void should_refuse_a_rule_and_a_missing_one_by_its_code() {
+        when(ruleService.save(any(Long.class), any())).thenReturn(Mono.error(AirconException.invalidRule("The target is not above the threshold")));
+        when(ruleService.rule(140)).thenReturn(Mono.error(AirconException.ruleNotFound(140)));
+        when(ruleService.delete(144)).thenReturn(Mono.empty());
+
+        webTestClient.put().uri("/144/rules").contentType(MediaType.APPLICATION_JSON).bodyValue("{}").exchange()
+            .expectStatus().isBadRequest()
+            .expectBody().jsonPath("$.errors[0].code").isEqualTo("INVALID_RULE");
+        webTestClient.get().uri("/140/rules").exchange()
+            .expectStatus().isNotFound()
+            .expectBody().jsonPath("$.errors[0].code").isEqualTo("NOT_FOUND_RULE");
+        webTestClient.delete().uri("/144/rules").exchange().expectStatus().isNoContent();
+    }
 
     //the empty house and the grid (HAS-385); a field not known is left out, the objects stay
     @Test

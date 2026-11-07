@@ -21,4 +21,9 @@ public enum ChangeSource {
     MINIMUM_RESTORED("minimum-restored");
 
     private final String value;
+
+    //the word as the table writes it, or nothing for a word this version does not know
+    public static java.util.Optional<ChangeSource> ofValue(final String value) {
+        return java.util.Arrays.stream(values()).filter(source -> source.value.equals(value)).findFirst();
+    }
 }

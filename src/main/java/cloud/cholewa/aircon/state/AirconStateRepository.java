@@ -58,6 +58,14 @@ public class AirconStateRepository {
         VALUES (:unitId, :at, :power, :mode, :targetTemperature, :fanSpeed, :source)
         """;
 
+    //the last change of every unit and whose it was (HAS-386): the rule knows after a start which unit it switched on, the
+    //window which unit a person changed
+    private static final String LAST_CHANGES = """
+        SELECT DISTINCT ON (unit_id) unit_id, source, changed_at
+        FROM aircon_state_change
+        ORDER BY unit_id, id DESC
+        """;
+
     private static final String CURRENT_STATES = """
         SELECT unit_id, power, mode, target_temperature, room_temperature, fan_speed, swing_vertical, swing_horizontal,
                quiet, turbo, sleep, display, last_checked_at
@@ -123,6 +131,20 @@ public class AirconStateRepository {
                     null),
                 row.get("last_checked_at", LocalDateTime.class)))
             .all();
+    }
+
+    //the last change of every unit; a source this version does not know is left out
+    public Flux<LastChange> lastChanges() {
+        return databaseClient.sql(LAST_CHANGES)
+            .map(row -> new LastChange(
+                row.get("unit_id", Long.class),
+                text(row, "source").flatMap(ChangeSource::ofValue).orElse(null),
+                row.get("changed_at", LocalDateTime.class)))
+            .all()
+            .filter(change -> change.source() != null);
+    }
+
+    public record LastChange(long unitId, ChangeSource source, LocalDateTime at) {
     }
 
     private static Optional<String> text(final Readable row, final String column) {

@@ -124,6 +124,19 @@ class AirconStateRepositoryTest {
 
     //the words of ChangeSource are the words the CHECK of the table takes
     @Test
+    void should_read_the_last_change_of_every_unit() {
+        sut.recordChange(140, COOLING, ChangeSource.FIRST_READ, AT.minusHours(2)).as(StepVerifier::create).verifyComplete();
+        sut.recordChange(140, COOLING, ChangeSource.RULE, AT.minusHours(1)).as(StepVerifier::create).verifyComplete();
+        sut.recordChange(141, COOLING, ChangeSource.REMOTE, AT).as(StepVerifier::create).verifyComplete();
+
+        sut.lastChanges().collectList().as(StepVerifier::create)
+            .assertNext(changes -> assertThat(changes).containsExactlyInAnyOrder(
+                new AirconStateRepository.LastChange(140, ChangeSource.RULE, AT.minusHours(1)),
+                new AirconStateRepository.LastChange(141, ChangeSource.REMOTE, AT)))
+            .verifyComplete();
+    }
+
+    @Test
     void should_take_every_source_of_a_change() {
         for (ChangeSource source : ChangeSource.values()) {
             sut.recordChange(142, COOLING, source, AT).as(StepVerifier::create).verifyComplete();

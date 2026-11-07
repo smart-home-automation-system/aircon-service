@@ -73,6 +73,9 @@ public class StateTracker {
             : repository.currentStates()
                 .doOnNext(stateStore::restore)
                 .count()
+                .flatMap(count -> repository.lastChanges()
+                    .doOnNext(change -> stateStore.restoreChange(change.unitId(), change.source(), change.at()))
+                    .then(Mono.just(count)))
                 .doOnNext(count -> {
                     restored.set(true);
                     log.info("The state of {} air conditioner(s) restored from the database", count);

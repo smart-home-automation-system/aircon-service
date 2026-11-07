@@ -59,6 +59,7 @@ public class WindowWatch {
     private final HeatingClient heatingClient;
     private final WindowHoldRepository repository;
     private final WindowStates windowStates;
+    private final RoomTemperatures roomTemperatures;
     private final StateStore stateStore;
     private final RuleCommands ruleCommands;
     private final AutomationState automationState;
@@ -93,6 +94,7 @@ public class WindowWatch {
     //the window of every room heating-service answers, by the word of the room; none known when it does not answer
     private Mono<Map<String, RoomWindow>> windows() {
         return heatingClient.getRooms()
+            .doOnNext(rooms -> roomTemperatures.rooms(temperatures(rooms)))
             .map(WindowWatch::byRoom)
             .doOnNext(read -> {
                 windowStates.rooms(read);
@@ -102,12 +104,21 @@ public class WindowWatch {
             })
             .onErrorResume(failure -> Mono.fromSupplier(() -> {
                 windowStates.unknown();
+                roomTemperatures.unknown();
                 if (!heatingFailing.getAndSet(true)) {
                     log.warn("The windows could not be read from heating-service, none stops or sets back a unit: {}",
                         failure.getMessage());
                 }
                 return Collections.<String, RoomWindow>emptyMap();
             }));
+    }
+
+    //the temperature of every room that has one - for the rules (HAS-386)
+    private static Map<String, HeatingRoom.Reading> temperatures(final List<HeatingRoom> rooms) {
+        return rooms.stream()
+            .filter(room -> room != null && room.name() != null && room.temperature() != null
+                && room.temperature().value() != null && room.temperature().updatedAt() != null)
+            .collect(Collectors.toMap(HeatingRoom::name, HeatingRoom::temperature, (first, second) -> first));
     }
 
     private static Map<String, RoomWindow> byRoom(final List<HeatingRoom> rooms) {
