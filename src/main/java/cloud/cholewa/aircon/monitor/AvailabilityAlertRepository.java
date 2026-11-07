@@ -14,6 +14,8 @@ import java.time.LocalDateTime;
 @RequiredArgsConstructor
 public class AvailabilityAlertRepository {
 
+    private static final String UNIT_ID = "unitId";
+
     private final DatabaseClient databaseClient;
 
     public Flux<Alert> findAll() {
@@ -33,7 +35,7 @@ public class AvailabilityAlertRepository {
                 VALUES (:unitId, :name, :room, :since, :lastAlertAt)
                 ON CONFLICT (unit_id) DO NOTHING
                 """)
-            .bind("unitId", alert.id())
+            .bind(UNIT_ID, alert.id())
             .bind("name", alert.name())
             .bind("room", alert.room())
             .bind("since", alert.since())
@@ -44,13 +46,13 @@ public class AvailabilityAlertRepository {
     public Mono<Void> reminded(final long unitId, final LocalDateTime at) {
         return databaseClient.sql("UPDATE aircon_availability_alert SET last_alert_at = :at WHERE unit_id = :unitId")
             .bind("at", at)
-            .bind("unitId", unitId)
+            .bind(UNIT_ID, unitId)
             .fetch().rowsUpdated().then();
     }
 
     public Mono<Void> delete(final long unitId) {
         return databaseClient.sql("DELETE FROM aircon_availability_alert WHERE unit_id = :unitId")
-            .bind("unitId", unitId)
+            .bind(UNIT_ID, unitId)
             .fetch().rowsUpdated().then();
     }
 }

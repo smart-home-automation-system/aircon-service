@@ -8,11 +8,11 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 //What the availability monitor makes of the units and the alerts already open (HAS-383) - pure, pinned by
-//AvailabilityEvaluatorTest; the rules of the monitor of light-service:
-//- a unit is out once it has not answered for offlineAfter, since the first read of the run that did not answer;
-//- out and not announced: an alert; announced and still out: a reminder every reminderEvery; announced and answering now:
-//  an info; never one only not known after a restart (reachable not known yet) - it is not back until a read answers;
-//- announced and no longer watched (removed from the registry): forgotten without a word
+//AvailabilityEvaluatorTest, by the rules of the monitor of light-service. A unit is out once it has not answered for
+//offlineAfter, since the first read of the run that did not answer. Out and not announced, it is an alert; announced
+//and still out, a reminder every reminderEvery; announced and answering now, an info - never a unit only not known after
+//a restart, which is not back until a read answers. Announced and no longer watched (removed from the registry), it is
+//forgotten without a word
 public final class AvailabilityEvaluator {
 
     private AvailabilityEvaluator() {
