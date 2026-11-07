@@ -31,6 +31,22 @@ database:
     # one more connection
     max-size: 2
 
+internal:
+  service:
+    # the device registry: the air conditioners of the house (the kind air conditioner, HAS-378)
+    database: http://database-service:6200
+
+aircon:
+  # the local protocol of the Gree units (HAS-380): unicast UDP to the address of the registry - a broadcast from the
+  # cluster does not reach the VLAN of the units. A datagram is lost now and then (Wi-Fi retransmissions of 11-62 %,
+  # the probe of 2026-11-04), so every request waits timeout and is sent again up to retries times; a unit that fails
+  # rebind-after requests in a row is bound again (a bare duration is seconds)
+  gree:
+    port: 7000
+    timeout: PT3S
+    retries: 2
+    rebind-after: 3
+
 cholewa:
   # refuses the start before the first bean when one of these has no value (cholewa-commons >= 1.9.0)
   required-properties:
@@ -77,6 +93,10 @@ spring:
     activate:
       on-profile: local
 
+internal:
+  service:
+    database: http://localhost:6005
+
 server:
   port: 6015
 management:
@@ -103,6 +123,12 @@ spring:
 # the pool opens nothing eagerly, and Flyway is off: a context test never reaches a database
 database:
   password: test
+
+# second line of defence: SchedulingConfig schedules nothing under this profile, and should a test call the
+# registry all the same, it must not reach the one of the house
+internal:
+  service:
+    database: http://localhost:1
 
 logbook:
   format:
