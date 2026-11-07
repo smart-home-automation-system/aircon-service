@@ -1,0 +1,114 @@
+spring:
+  application:
+    name: aircon-service
+    version: @project.version@
+  profiles:
+    active: home
+  webflux:
+    base-path: "/home/aircon"
+  reactor:
+    # default LIMITED restores ThreadLocals only in "tap" and "handle", so traceId would be
+    # missing from the MDC of every log statement inside a reactive chain
+    context-propagation: auto
+  flyway:
+    url: ${flyway-url:jdbc:postgresql://${database.host}:${database.port}/${database.name}}
+    user: ${database.username}
+    password: ${database.password}
+    enabled: on
+
+database:
+  host: ${database-host:localhost}
+  port: ${database-port:5432}
+  name: ${database-name:dummyName}
+  username: ${database-user:dummyUser}
+  # no default on purpose: cholewa.required-properties refuses the start without it, before Flyway or
+  # the pool try a password that is not one
+  password: ${database-password}
+  pool:
+    # this service's share of the 47 connections of the managed database (heating 2 / database 4 /
+    # water 2 / presence 2 / blinds 2 / weather 2 / light 2 / appliance 2 / energy 2 / aircon 2 - 22
+    # allotted, with the 3 of ristretto 25 of 47, HAS-380). A rollout holds the pool twice and Flyway opens
+    # one more connection
+    max-size: 2
+
+cholewa:
+  # refuses the start before the first bean when one of these has no value (cholewa-commons >= 1.9.0)
+  required-properties:
+    - property: database.password
+      variable: database-password
+
+server:
+  port: 6200
+management:
+  server:
+    port: 8200
+  endpoint:
+    health:
+      # a 404 on the readiness path crash-loops the pod, so the probe groups are pinned here
+      # instead of relying on Boot detecting the Kubernetes platform — and kept in the shared
+      # document, where the paths can be exercised locally on 8015 before the manifest ships
+      probes:
+        enabled: true
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  tracing:
+    sampling:
+      # default 0.1; a home system generates so little traffic that sampling everything is free,
+      # and a partially sampled trace is useless when it is the only record of a request
+      probability: 1.0
+
+logbook:
+  format:
+    style: json
+
+logging:
+  structured:
+    format:
+      console: logstash
+  level:
+    org.zalando.logbook: trace
+
+---
+
+spring:
+  config:
+    activate:
+      on-profile: local
+
+server:
+  port: 6015
+management:
+  server:
+    port: 8015
+
+logbook:
+  format:
+    style: http
+
+logging:
+  structured:
+    format:
+      console: ""
+---
+
+spring:
+  config:
+    activate:
+      on-profile: test
+  flyway:
+    enabled: false
+
+# the pool opens nothing eagerly, and Flyway is off: a context test never reaches a database
+database:
+  password: test
+
+logbook:
+  format:
+    style: http
+
+logging:
+  structured:
+    format:
+      console: ""

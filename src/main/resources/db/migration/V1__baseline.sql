@@ -1,0 +1,3 @@
+-- The baseline of the database home-automation-aircon (HAS-380): no table yet - the tables come with the
+-- tasks that store something (the state of the units onwards). The first run proves the grant on the
+-- schema public: Flyway creates its history table there.
