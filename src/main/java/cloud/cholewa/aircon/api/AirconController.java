@@ -1,6 +1,9 @@
 package cloud.cholewa.aircon.api;
 
 import cloud.cholewa.aircon.api.model.AirconReply;
+import cloud.cholewa.aircon.api.model.AirconRule;
+import cloud.cholewa.aircon.api.model.RuleBody;
+import cloud.cholewa.aircon.rule.RuleService;
 import cloud.cholewa.aircon.api.model.AutomationReply;
 import cloud.cholewa.aircon.automation.AutomationService;
 import cloud.cholewa.aircon.api.model.CommandRequest;
@@ -9,8 +12,10 @@ import cloud.cholewa.aircon.command.CommandService;
 import cloud.cholewa.aircon.unit.UnitService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -29,6 +34,30 @@ public class AirconController {
     private final UnitService unitService;
     private final CommandService commandService;
     private final AutomationService automationService;
+    private final RuleService ruleService;
+
+    //the rule of every unit that has one (HAS-386)
+    @GetMapping("rules")
+    Mono<List<AirconRule>> rules() {
+        return ruleService.rules();
+    }
+
+    @GetMapping("{id}/rules")
+    Mono<AirconRule> rule(@PathVariable final long id) {
+        return ruleService.rule(id);
+    }
+
+    //the rule of a unit written whole - INVALID_RULE with the reason, NOT_FOUND_AIRCON for a unit not registered
+    @PutMapping("{id}/rules")
+    Mono<AirconRule> saveRule(@PathVariable final long id, @RequestBody final RuleBody body) {
+        return ruleService.save(id, body);
+    }
+
+    @DeleteMapping("{id}/rules")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    Mono<Void> deleteRule(@PathVariable final long id) {
+        return ruleService.delete(id);
+    }
 
     //the empty house and the grid, and when each last switched the units off (HAS-385)
     @GetMapping("automation")

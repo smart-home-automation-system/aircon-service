@@ -61,6 +61,7 @@ class StateTrackerTest {
     @BeforeEach
     void setUp() {
         when(repository.currentStates()).thenReturn(Flux.empty());
+        when(repository.lastChanges()).thenReturn(Flux.empty());
         when(repository.recordState(anyLong(), any(), any())).thenReturn(Mono.empty());
         when(repository.recordChange(anyLong(), any(), any(), any())).thenReturn(Mono.empty());
     }
@@ -121,6 +122,17 @@ class StateTrackerTest {
         tracker.track().as(StepVerifier::create).verifyComplete();
         verify(repository).recordChange(140, ON, ChangeSource.REMOTE, NOW);
         verify(repository, times(1)).currentStates();
+    }
+
+    //the last change of every unit restored with the state (HAS-386): the rule knows which unit it switched on
+    @Test
+    void should_restore_the_last_change_of_every_unit() {
+        when(repository.lastChanges()).thenReturn(Flux.just(
+            new AirconStateRepository.LastChange(144, ChangeSource.RULE, NOW.minusHours(2))));
+
+        tracker.restore().as(StepVerifier::create).verifyComplete();
+
+        assertThat(store.lastChange(144)).contains(new StateStore.Change(ChangeSource.RULE, NOW.minusHours(2)));
     }
 
     //a unit that stops answering keeps what it reported, unreachable; the others are read all the same

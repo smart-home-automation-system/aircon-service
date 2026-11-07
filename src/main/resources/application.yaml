@@ -85,6 +85,12 @@ aircon:
     after: PT10M
     exempt-rooms:
       - sanctum
+  # the rules of the units (HAS-386): a change of a person holds the rule off its unit for manual-hold; a reading of the
+  # room decides while not older than fresh-for - the battery thermometers report on a change and at least every two
+  # hours (a bare number is minutes)
+  rule:
+    manual-hold: PT30M
+    fresh-for: PT3H
   # the commands (HAS-382): read back confirm-after later; the change a read shows within expect-for is the sender's, after
   # it the remote's (a bare duration is seconds)
   command:

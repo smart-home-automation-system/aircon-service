@@ -33,6 +33,11 @@ public class StateStore {
         changes.put(unitId, new Change(source, at));
     }
 
+    //the last change of aircon_state_change at a start (HAS-386); one a read of this run saw is kept
+    void restoreChange(final long unitId, final ChangeSource source, final LocalDateTime at) {
+        changes.putIfAbsent(unitId, new Change(source, at));
+    }
+
     //a read that answered; answers what was known before it
     Optional<UnitState> answered(final long unitId, final UnitStatus status, final LocalDateTime at) {
         return Optional.ofNullable(states.put(unitId, UnitState.answering(status, at)));

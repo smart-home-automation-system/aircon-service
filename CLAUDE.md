@@ -4,8 +4,8 @@ The air conditioners of the house (epic HAS-376): five Gree indoor units over th
 state, commands and the rules of the house (open windows, 22 °C minimum in cooling, sanctum below
 25 °C, the empty house, a lost grid, run hours). Scaffolded by HAS-380 with the units of the
 registry and the driver; the state of every unit since HAS-381; the commands and the guard of 22 °C since HAS-382;
-the availability monitor since HAS-383; the open windows since HAS-384; the empty house and a lost grid since HAS-385; the features come with HAS-386
-onwards.
+the availability monitor since HAS-383; the open windows since HAS-384; the empty house and a lost grid since HAS-385; the rule per unit since HAS-386; the features
+come with HAS-387 onwards.
 
 Part of the smart-home-automation-system organization — org-wide conventions, the
 repository map and working rules come from the workspace-level context
@@ -33,7 +33,7 @@ IntelliJ.
 ## Build & run
 
 - Build + tests: `mvn verify` - **needs a running Docker** since HAS-381 (`AirconStateRepositoryTest`,
-  `WindowHoldRepositoryTest`, `RuleRunRepositoryTest` - Testcontainers PostgreSQL).
+  `WindowHoldRepositoryTest`, `RuleRunRepositoryTest`, `RuleRepositoryTest` - Testcontainers PostgreSQL).
 - Local run: `home,local` Spring profiles, port `6015` (Actuator `8015`); in-cluster port `6200`,
   Actuator `8200`. Needs `database-password` and the other `database-*` values. **The real values
   are the production database** - a migration is rehearsed on a throwaway PostgreSQL, never by a
@@ -114,10 +114,11 @@ firmware `362001065279+U-WB05RT13V1.45.bin`, `ver V3.4.M`, mid 10001:
   over V2 - Flyway ignores a future migration). **`V3`** (HAS-382) adds `minimum-restored` to the check of the history;
   rehearsed the same way (0.2.0 starts over V3). **`V4`** (HAS-383) creates `aircon_availability_alert`; rehearsed
   the same way with 0.3.0. **`V5`** (HAS-384) creates `aircon_window_hold`; rehearsed the same way with 0.4.0 (0.4.0 starts over V5). **`V6`** (HAS-385)
-  creates `aircon_rule_run`; rehearsed the same way with 0.5.0 (0.5.0 starts over V6).
+  creates `aircon_rule_run`; rehearsed the same way with 0.5.0 (0.5.0 starts over V6). **`V7`** (HAS-386) creates
+  `aircon_rule`; rehearsed the same way with 0.6.0 (0.6.0 starts over V7).
 - **Scheduling is off under `test`** (`SchedulingConfig`, `@Profile("!test")`): the registry pass
   is wrapped in `ScheduledPass.bounded` (2 min, below its 5 min delay), the state pass too (25 s, below its 30 s),
-  the availability monitor, the window pass and the automation (55 s, below their minute); the scheduler has the pool
+  the availability monitor, the window pass, the automation and the rules (55 s, below their minute); the scheduler has the pool
   of 10 of the library.
 - **The broker** (HAS-383): one connection to `/notification` (user `notification`, `rabbitmq-password` in
   `cholewa.required-properties`), the publisher of `cholewa-commons` on `spring.rabbitmq.*` - the shape of
@@ -167,6 +168,22 @@ firmware `362001065279+U-WB05RT13V1.45.bin`, `ver V3.4.M`, mid 10001:
   rules to come - goes through it: `CommandService` under its source, then a row of `aircon_rule_run` (`V6`: source,
   unit, episode, the wire command, `sent` / `failed` / `refused`), kept 90 days. A row that fails is a WARN. The window
   logs its commands there too (the episode is the time of the stop).
+- **The rule per unit** (HAS-386, `rule/`): `RuleRules` is **a pure class the dashboard copies** - the threshold 20-30 C
+  by 0.5, the hysteresis 0.5-3 by 0.5 (default 1), the target a whole degree 22-30 and never above the threshold (so a
+  threshold below 22 is refused while the target is 22) - repeated as the checks of `aircon_rule` (`V7`). `RuleEngine`
+  every minute (90 s in, bounded 55 s) reads the table and judges each rule of a registered unit by `RuleEvaluator`
+  (pure): **the room from heating-service only** (`RoomTemperatures`, written by the window pass - one read of
+  heating-service a minute) **while not older than `aircon.rule.fresh-for` (PT3H)**, never the sensor of the unit (owner
+  2026-11-07: it reads 2-7 C low in sanctum; the Plus H&T reports on a change and every two hours, so 30 min would
+  discard it); above the threshold - cool at the target unless cooling, `source=rule`; below threshold - hysteresis - off,
+  only while the unit's last change is the rule's and it is on. Nothing within `manual-hold` (PT30M) of a change by the
+  remote or the dashboard, nothing for a unit not answering or not read, no cooling while the grid is lost or the window
+  of its room holds (the off still goes). **The last change of every unit is restored from `aircon_state_change` at a
+  start** (`AirconStateRepository.lastChanges`), so the rule knows after a restart which unit it switched on - and the
+  window which unit a person changed. `heatBySchedule` is stored, not acted on (HAS-387). Commands through `RuleCommands`;
+  after `MAX_NOT_TAKEN` (3) commands in a row the unit did not take (`CommandOutcomes.lastCommandConfirmed`) the rule
+  pauses for it with one WARN, until it asks for nothing or a command is taken (in memory). A target the rule lowers on a
+  unit a person switched on makes the unit the rule's - it may switch it off later (keeping the room below, accepted).
 - **Tests use `mockwebserver3`** for the client of database-service, never the legacy
   `mockwebserver` (JUnit 4).
 - **Surefire activates the `test` profile for every class**; the `includes` match only

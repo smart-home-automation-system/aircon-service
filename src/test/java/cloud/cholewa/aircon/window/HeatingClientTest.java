@@ -62,6 +62,21 @@ class HeatingClientTest {
         assertThat(request.getUrl().encodedPath()).isEqualTo("/home/heating/rooms");
     }
 
+    //the temperature of a room as heating-service answers it (HAS-386) - decoded by the canonical constructor
+    @Test
+    void should_read_the_temperature_of_a_room() {
+        server.enqueue(json("""
+            [{"name":"sanctum","heatingEnabled":false,"temperature":{"value":17.1,"updatedAt":"2026-11-07T18:46:49"},
+              "humidity":{"value":47.2,"updatedAt":"2026-11-07T18:46:49"},"window":{"state":"no sensor","hold":false}}]
+            """));
+
+        client.getRooms().as(StepVerifier::create)
+            .assertNext(rooms -> assertThat(rooms).containsExactly(new HeatingRoom("sanctum",
+                new RoomWindow("no sensor", null, false),
+                new HeatingRoom.Reading(17.1, LocalDateTime.of(2026, 11, 7, 18, 46, 49)))))
+            .verifyComplete();
+    }
+
     //what heating-service said goes to the log, never further
     @Test
     void should_fail_on_an_error_of_heating_service() {

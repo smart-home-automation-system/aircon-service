@@ -57,11 +57,12 @@ class WindowWatchTest {
     private final HeatingClient heating = mock(HeatingClient.class);
     private final WindowHoldRepository repository = mock(WindowHoldRepository.class);
     private final WindowStates windowStates = new WindowStates();
+    private final RoomTemperatures roomTemperatures = new RoomTemperatures();
     private final StateStore store = mock(StateStore.class);
     private final RuleCommands commands = mock(RuleCommands.class);
     private final AutomationState automation = mock(AutomationState.class);
-    private final WindowWatch watch = new WindowWatch(registry, heating, repository, windowStates, store, commands, automation,
-        new WindowProperties(WITHIN), CLOCK);
+    private final WindowWatch watch = new WindowWatch(registry, heating, repository, windowStates, roomTemperatures,
+        store, commands, automation, new WindowProperties(WITHIN), CLOCK);
 
     @BeforeEach
     void setUp() {
@@ -257,6 +258,22 @@ class WindowWatchTest {
         watch.watchOnce().as(StepVerifier::create).verifyComplete();
 
         verify(repository).deleteClosedBefore(NOW.minusDays(90));
+    }
+
+    //the temperature of the rooms kept for the rules (HAS-386); forgotten with a failed read
+    @Test
+    void should_keep_the_temperature_of_the_rooms() {
+        when(heating.getRooms()).thenReturn(Mono.just(List.of(new HeatingRoom("sanctum",
+            new RoomWindow("no sensor", null, false), new HeatingRoom.Reading(17.1, NOW.minusHours(1))),
+            new HeatingRoom("garden", new RoomWindow("no sensor", null, false)))));
+
+        watch.watchOnce().as(StepVerifier::create).verifyComplete();
+        assertThat(roomTemperatures.of("sanctum")).contains(new HeatingRoom.Reading(17.1, NOW.minusHours(1)));
+        assertThat(roomTemperatures.of("garden")).isEmpty();
+
+        when(heating.getRooms()).thenReturn(Mono.error(new HeatingCallException("heating-service answered 503")));
+        watch.watchOnce().as(StepVerifier::create).verifyComplete();
+        assertThat(roomTemperatures.of("sanctum")).isEmpty();
     }
 
     @Test

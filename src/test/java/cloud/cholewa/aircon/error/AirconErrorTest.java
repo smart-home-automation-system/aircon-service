@@ -13,6 +13,6 @@ class AirconErrorTest {
     @Test
     void should_keep_the_codes_of_the_refused_requests() {
         assertThat(Arrays.stream(AirconError.values()).map(ErrorId::codeOf)).containsExactly("REGISTRY_UNAVAILABLE", "NOT_FOUND_AIRCON",
-            "NOT_FOUND_ROOM", "INVALID_COMMAND", "DEVICE_FAILED");
+            "NOT_FOUND_ROOM", "INVALID_COMMAND", "DEVICE_FAILED", "INVALID_RULE", "NOT_FOUND_RULE");
     }
 }

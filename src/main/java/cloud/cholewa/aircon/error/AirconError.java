@@ -5,7 +5,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
-//The causes of a request the API refuses (HAS-380, HAS-381, HAS-382). Their names are the codes of the answer (ErrorId.codeOf) -
+//The causes of a request the API refuses (HAS-380, HAS-381, HAS-382, HAS-386). Their names are the codes of the answer (ErrorId.codeOf) -
 //wire contract for a caller that branches on them, the dashboard first of all, pinned by AirconErrorTest
 @Getter
 @RequiredArgsConstructor(access = AccessLevel.PRIVATE)
@@ -25,7 +25,14 @@ public enum AirconError implements ErrorId {
     INVALID_COMMAND("Invalid command"),
 
     //the unit did not answer a command after every attempt - it may have taken it all the same
-    DEVICE_FAILED("Device failed");
+    DEVICE_FAILED("Device failed"),
+
+    //a rule the rules of a rule refuse (RuleRules: 20-30 C by 0.5, a hysteresis of 0.5-3 by 0.5, a target of 22 C at
+    //least and not above the threshold) - the details say which
+    INVALID_RULE("Invalid rule"),
+
+    //the unit has no rule
+    NOT_FOUND_RULE("Rule not found");
 
     private final String description;
 }
