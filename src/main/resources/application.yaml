@@ -56,6 +56,9 @@ internal:
     database: http://database-service:6200
     # the windows of the rooms (HAS-384): GET /home/heating/rooms, heating-service >= 1.20.0
     heating: http://heating-service:6200
+    # who is at home and the grid (HAS-385): GET /home/presence/residents/presence, GET /home/energy/status (>= 0.4.0)
+    presence: http://presence-service:6200
+    energy: http://energy-service:6200
 
 aircon:
   # the local protocol of the Gree units (HAS-380): unicast UDP to the address of the registry - a broadcast from the
@@ -76,6 +79,12 @@ aircon:
   # within restore-within of the stop, later it stays off (a bare number is minutes)
   window:
     restore-within: PT1H
+  # the empty house (HAS-385): nobody at home for after switches the cooling units off once, outside the exempt rooms (the
+  # words of the registry; sanctum - the server room); a bare number is minutes
+  empty-house:
+    after: PT10M
+    exempt-rooms:
+      - sanctum
   # the commands (HAS-382): read back confirm-after later; the change a read shows within expect-for is the sender's, after
   # it the remote's (a bare duration is seconds)
   command:
@@ -144,6 +153,8 @@ internal:
   service:
     database: http://localhost:6005
     heating: http://localhost:6002
+    presence: http://localhost:6009
+    energy: http://localhost:6014
 
 server:
   port: 6015
@@ -187,6 +198,8 @@ internal:
   service:
     database: http://localhost:1
     heating: http://localhost:1
+    presence: http://localhost:1
+    energy: http://localhost:1
 
 logbook:
   format:

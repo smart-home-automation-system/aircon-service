@@ -1,7 +1,8 @@
 package cloud.cholewa.aircon.window;
 
 import cloud.cholewa.aircon.api.model.CommandRequest;
-import cloud.cholewa.aircon.command.CommandService;
+import cloud.cholewa.aircon.automation.AutomationState;
+import cloud.cholewa.aircon.automation.RuleCommands;
 import cloud.cholewa.aircon.error.AirconError;
 import cloud.cholewa.aircon.error.AirconException;
 import cloud.cholewa.aircon.registry.AirConditioner;
@@ -59,7 +60,8 @@ public class WindowWatch {
     private final WindowHoldRepository repository;
     private final WindowStates windowStates;
     private final StateStore stateStore;
-    private final CommandService commandService;
+    private final RuleCommands ruleCommands;
+    private final AutomationState automationState;
     private final WindowProperties properties;
     private final Clock clock;
 
@@ -155,8 +157,8 @@ public class WindowWatch {
             case STOP_AGAIN -> Mono.fromRunnable(() -> log.info(
                     "Air conditioner {} is on while the window of {} holds it, switched off again", unit.id(),
                     unit.room().getValue()))
-                .then(Mono.defer(() -> stop(unit)));
-            case RESTORE -> restore(unit, latest, now);
+                .then(Mono.defer(() -> stop(unit, latest.heldSince())));
+            case RESTORE -> restoreUnlessHeldOff(unit, latest, now);
             case EXPIRE -> close(latest, HoldOutcome.EXPIRED, now).doOnSuccess(done -> log.info(
                 "Air conditioner {} stays off: the window of {} closed later than {} after the stop", unit.id(),
                 unit.room().getValue(), properties.restoreWithin()));
@@ -182,20 +184,34 @@ public class WindowWatch {
                 log.info("Air conditioner {} switched off: a window of {} open since {}", unit.id(),
                     unit.room().getValue(), window.openSince());
             })
-            .then(Mono.defer(() -> stop(unit)));
+            .then(Mono.defer(() -> stop(unit, now)));
     }
 
-    private Mono<Void> stop(final AirConditioner unit) {
-        return commandService.send(unit.id(), OFF, ChangeSource.WINDOW.getValue())
+    private Mono<Void> stop(final AirConditioner unit, final LocalDateTime heldSince) {
+        return ruleCommands.send(unit.id(), OFF, ChangeSource.WINDOW, heldSince)
             .onErrorResume(failure -> Mono.fromRunnable(() -> log.warn(
                 "Air conditioner {} could not be switched off for the window, tried again next minute: {}", unit.id(),
                 failure.getMessage())));
     }
 
+    //nobody at home or the grid lost (HAS-385): the unit is not switched back on - the stop ends as expired, the unit
+    //stays off as the empty house or the outage would have it
+    private Mono<Void> restoreUnlessHeldOff(final AirConditioner unit, final WindowHold hold, final LocalDateTime now) {
+        return Mono.just(hold)
+            .filter(ignored -> automationState.holdsTheUnitsOff())
+            .flatMap(held -> close(held, HoldOutcome.EXPIRED, now)
+                .doOnSuccess(done -> log.info(
+                    "Air conditioner {} stays off: the windows of {} closed while nobody is at home or the grid is lost",
+                    unit.id(), unit.room().getValue()))
+                .thenReturn(held))
+            .switchIfEmpty(Mono.defer(() -> restore(unit, hold, now).thenReturn(hold)))
+            .then();
+    }
+
     //a refused restore is closed - another attempt would be refused the same; one the unit did not answer is tried again
     //next minute, until restore-within
     private Mono<Void> restore(final AirConditioner unit, final WindowHold hold, final LocalDateTime now) {
-        return commandService.send(unit.id(), restoreOf(hold.before()), ChangeSource.WINDOW.getValue())
+        return ruleCommands.send(unit.id(), restoreOf(hold.before()), ChangeSource.WINDOW, hold.heldSince())
             .then(Mono.defer(() -> close(hold, HoldOutcome.RESTORED, now)))
             .doOnSuccess(done -> log.info("Air conditioner {} set back as it was: the windows of {} closed", unit.id(),
                 unit.room().getValue()))
