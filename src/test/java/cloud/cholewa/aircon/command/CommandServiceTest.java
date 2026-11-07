@@ -63,8 +63,8 @@ class CommandServiceTest {
     @BeforeEach
     void setUp() {
         when(registry.current()).thenReturn(Optional.of(List.of(OFFICE, LIVIA)));
-        when(store.of(140)).thenReturn(Optional.of(new UnitState(OFF, true, LocalDateTime.now(CLOCK))));
-        when(store.of(141)).thenReturn(Optional.of(new UnitState(OFF, true, LocalDateTime.now(CLOCK))));
+        when(store.of(140)).thenReturn(Optional.of(new UnitState(OFF, true, LocalDateTime.now(CLOCK), null)));
+        when(store.of(141)).thenReturn(Optional.of(new UnitState(OFF, true, LocalDateTime.now(CLOCK), null)));
     }
 
     //sent once, then read back: taken, it is confirmed, and the change of the read is the sender's

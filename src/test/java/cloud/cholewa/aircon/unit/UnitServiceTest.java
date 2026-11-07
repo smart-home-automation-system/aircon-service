@@ -30,7 +30,7 @@ class UnitServiceTest {
     private static final UnitStatus COOLING = new UnitStatus(true, Mode.COOL, 22, 24, FanSpeed.AUTO, 0, 0, false, false,
         false, true, "hid");
     private static final AirconReply OFFICE_COOLING = new AirconReply(140, "Air conditioner", RoomName.OFFICE, true,
-        Mode.COOL, 22, 24, FanSpeed.AUTO, 0, 0, false, false, false, true, true, AT, null, null);
+        Mode.COOL, 22, 24, FanSpeed.AUTO, 0, 0, false, false, false, true, true, null, AT, null, null);
 
     private final UnitRegistry registry = mock(UnitRegistry.class);
     private final StateStore store = mock(StateStore.class);
@@ -51,12 +51,12 @@ class UnitServiceTest {
     @Test
     void should_answer_every_unit_with_the_state_kept() {
         when(registry.current()).thenReturn(Optional.of(List.of(OFFICE, BEDROOM)));
-        when(store.of(140)).thenReturn(Optional.of(new UnitState(COOLING, true, AT)));
+        when(store.of(140)).thenReturn(Optional.of(new UnitState(COOLING, true, AT, null)));
         when(store.of(143)).thenReturn(Optional.empty());
 
         service.units().as(StepVerifier::create)
             .expectNext(List.of(OFFICE_COOLING, new AirconReply(143, "Air conditioner", RoomName.BEDROOM, null, null,
-                null, null, null, null, null, null, null, null, null, null, null, null, null)))
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null)))
             .verifyComplete();
     }
 
@@ -64,7 +64,7 @@ class UnitServiceTest {
     @Test
     void should_answer_a_restored_unit_without_reachable() {
         when(registry.current()).thenReturn(Optional.of(List.of(OFFICE)));
-        when(store.of(140)).thenReturn(Optional.of(new UnitState(COOLING, null, AT)));
+        when(store.of(140)).thenReturn(Optional.of(new UnitState(COOLING, null, AT, null)));
 
         service.unit(140).as(StepVerifier::create)
             .assertNext(reply -> {
@@ -79,7 +79,7 @@ class UnitServiceTest {
     @Test
     void should_answer_what_the_commands_came_to() {
         when(registry.current()).thenReturn(Optional.of(List.of(OFFICE)));
-        when(store.of(140)).thenReturn(Optional.of(new UnitState(COOLING, true, AT)));
+        when(store.of(140)).thenReturn(Optional.of(new UnitState(COOLING, true, AT, null)));
         outcomes.confirmed(140, outcomes.issue(140), false);
         outcomes.minimumRestored(140, AT.minusMinutes(5));
 
@@ -104,7 +104,7 @@ class UnitServiceTest {
     @Test
     void should_answer_the_units_of_a_room() {
         when(registry.current()).thenReturn(Optional.of(List.of(OFFICE, BEDROOM)));
-        when(store.of(140)).thenReturn(Optional.of(new UnitState(COOLING, true, AT)));
+        when(store.of(140)).thenReturn(Optional.of(new UnitState(COOLING, true, AT, null)));
 
         service.room("office").as(StepVerifier::create)
             .expectNext(List.of(OFFICE_COOLING))

@@ -69,6 +69,7 @@ public class UnitService {
             status.map(UnitStatus::sleep).orElse(null),
             status.map(UnitStatus::display).orElse(null),
             state.map(UnitState::reachable).orElse(null),
+            state.map(UnitState::unreachableSince).orElse(null),
             state.map(UnitState::updatedAt).orElse(null),
             commandOutcomes.lastCommandConfirmed(unit.id()).orElse(null),
             commandOutcomes.minimumRestoredAt(unit.id()).orElse(null));

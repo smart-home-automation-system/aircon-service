@@ -4,7 +4,7 @@ The air conditioners of the house (epic HAS-376): five Gree indoor units over th
 state, commands and the rules of the house (open windows, 22 °C minimum in cooling, sanctum below
 25 °C, the empty house, a lost grid, run hours). Scaffolded by HAS-380 with the units of the
 registry and the driver; the state of every unit since HAS-381; the commands and the guard of 22 °C since HAS-382;
-the features come with HAS-383 onwards.
+the availability monitor since HAS-383; the features come with HAS-384 onwards.
 
 Part of the smart-home-automation-system organization — org-wide conventions, the
 repository map and working rules come from the workspace-level context
@@ -103,19 +103,29 @@ firmware `362001065279+U-WB05RT13V1.45.bin`, `ver V3.4.M`, mid 10001:
   neither stored nor answered.
 - **The socket API blocks**: `GreeTransport` runs every exchange on `boundedElastic`, never on an
   event loop; the lock per address is taken there too.
-- **`database-password` has no default**: `cholewa.required-properties` refuses the start before the
-  first bean. It is the only secret of the service so far.
+- **`database-password` and `rabbitmq-password` have no default**: `cholewa.required-properties` refuses the start
+  before the first bean.
 - **`V1` is an empty baseline** (only a comment): Flyway applies it and writes its history table,
   so the start has no `No migrations found` WARN and proves the grant. **`V2`** (HAS-381) creates the two
   tables of the state; rehearsed with the released 0.1.0 image on a throwaway PostgreSQL both ways (0.1.0 starts
   over V2 - Flyway ignores a future migration). **`V3`** (HAS-382) adds `minimum-restored` to the check of the history;
-  rehearsed the same way (0.2.0 starts over V3).
+  rehearsed the same way (0.2.0 starts over V3). **`V4`** (HAS-383) creates `aircon_availability_alert`; rehearsed
+  the same way with 0.3.0.
 - **Scheduling is off under `test`** (`SchedulingConfig`, `@Profile("!test")`): the registry pass
   is wrapped in `ScheduledPass.bounded` (2 min, below its 5 min delay), the state pass too (25 s, below its 30 s);
   the scheduler has the pool
   of 10 of the library.
-- **No broker yet**: the notifications come with the availability monitor (HAS-383), with their
-  password in `cholewa.required-properties`.
+- **The broker** (HAS-383): one connection to `/notification` (user `notification`, `rabbitmq-password` in
+  `cholewa.required-properties`), the publisher of `cholewa-commons` on `spring.rabbitmq.*` - the shape of
+  appliance-service. The task named the seventh copy of `NotificationRabbitConfig`, but that class is a *second*
+  connection beside a main one, and this service has no other: no copy was made.
+- **The availability monitor** (HAS-383, `monitor/`): `AvailabilityEvaluator` (pure) judges every minute by whole
+  passes - `unreachableSince` of `UnitState`, the first read of the run that did not answer - against
+  `aircon_availability_alert` (`V4`): out after `offline-after` (5 min) is one alert a pass naming every unit, a
+  reminder every `reminder-every` (1 h), an info when a unit answers again; a unit not known after a restart is never
+  back, one removed from the registry is forgotten without a word. The table changes only after the broker took the
+  message (confirms and returns of the publisher); a publish is cut off after 30 s and neither fails nor stalls the pass
+  (bounded at 55 s). `unreachableSince` is in the reads.
 - **Tests use `mockwebserver3`** for the client of database-service, never the legacy
   `mockwebserver` (JUnit 4).
 - **Surefire activates the `test` profile for every class**; the `includes` match only

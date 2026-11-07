@@ -33,7 +33,8 @@ import static org.mockito.Mockito.when;
 class AirconControllerTest {
 
     private static final AirconReply OFFICE = new AirconReply(140, "Air conditioner", RoomName.OFFICE, true, Mode.COOL,
-        22, 24, FanSpeed.MEDIUM_LOW, 0, 2, false, false, false, true, true, LocalDateTime.of(2026, 11, 7, 13, 15, 45), true, null);
+        22, 24, FanSpeed.MEDIUM_LOW, 0, 2, false, false, false, true, true, null, LocalDateTime.of(2026, 11, 7, 13, 15, 45), true,
+        null);
 
     @Autowired
     private WebTestClient webTestClient;
@@ -49,7 +50,7 @@ class AirconControllerTest {
     void should_answer_every_unit_with_what_is_known_of_it() {
         when(unitService.units()).thenReturn(Mono.just(List.of(OFFICE,
             new AirconReply(143, "Air conditioner", RoomName.HALL_UP, null, null, null, null, null, null, null, null,
-                null, null, null, null, null, null, null))));
+                null, null, null, null, null, null, null, null))));
 
         webTestClient.get().uri("")
             .exchange()

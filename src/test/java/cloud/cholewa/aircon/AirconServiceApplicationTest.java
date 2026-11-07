@@ -2,6 +2,8 @@ package cloud.cholewa.aircon;
 
 import cloud.cholewa.aircon.command.CommandProperties;
 import cloud.cholewa.aircon.driver.GreeProperties;
+import cloud.cholewa.aircon.monitor.MonitorProperties;
+import cloud.cholewa.commons.notification.NotificationPublisher;
 import cloud.cholewa.commons.database.DatabaseProperties;
 import cloud.cholewa.shelly.http.ShellyGen1Client;
 import cloud.cholewa.shelly.http.ShellyRpcClient;
@@ -29,6 +31,8 @@ class AirconServiceApplicationTest {
     private GreeProperties greeProperties;
     @Autowired
     private CommandProperties commandProperties;
+    @Autowired
+    private MonitorProperties monitorProperties;
 
     @Test
     void contextLoads() {
@@ -62,7 +66,11 @@ class AirconServiceApplicationTest {
             .isEqualTo("database.password");
         assertThat(applicationContext.getEnvironment().getProperty("cholewa.required-properties[0].variable"))
             .isEqualTo("database-password");
-        assertThat(applicationContext.getEnvironment().getProperty("cholewa.required-properties[1].property")).isNull();
+        assertThat(applicationContext.getEnvironment().getProperty("cholewa.required-properties[1].property"))
+            .isEqualTo("spring.rabbitmq.password");
+        assertThat(applicationContext.getEnvironment().getProperty("cholewa.required-properties[1].variable"))
+            .isEqualTo("rabbitmq-password");
+        assertThat(applicationContext.getEnvironment().getProperty("cholewa.required-properties[2].property")).isNull();
     }
 
     //the protocol of the probe of 2026-11-04: UDP 7000, 3 s for an answer, two more attempts, a new bind after three
@@ -70,6 +78,15 @@ class AirconServiceApplicationTest {
     @Test
     void should_speak_to_the_units_as_agreed() {
         assertThat(greeProperties).isEqualTo(new GreeProperties(7000, Duration.ofSeconds(3), 2, 3));
+    }
+
+    //HAS-383: a unit out after five minutes without an answer, told again every hour - on the technical channel, through
+    //the publisher of cholewa-commons (the dev queue under the test profile)
+    @Test
+    void should_watch_the_units_as_agreed() {
+        assertThat(monitorProperties).isEqualTo(new MonitorProperties(Duration.ofMinutes(5), Duration.ofHours(1)));
+        assertThat(applicationContext.getBeanNamesForType(NotificationPublisher.class)).hasSize(1);
+        assertThat(applicationContext.getEnvironment().getProperty("cholewa.notification.env")).isEqualTo("dev");
     }
 
     //HAS-382: a command read back 2 s later, its change the sender's for a minute
