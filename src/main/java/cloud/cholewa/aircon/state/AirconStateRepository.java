@@ -64,13 +64,17 @@ public class AirconStateRepository {
         FROM aircon_state
         """;
 
+    //a bind parameter and a column of the same name
+    private static final String POWER = "power";
+    private static final String MODE = "mode";
+
     private final DatabaseClient databaseClient;
 
     //what a unit reported at a time; a value not reported is NULL
     public Mono<Void> recordState(final long unitId, final UnitStatus status, final LocalDateTime at) {
         DatabaseClient.GenericExecuteSpec spec = databaseClient.sql(RECORD_STATE).bind("unitId", unitId).bind("at", at);
-        spec = nullable(spec, "power", status.power(), Boolean.class);
-        spec = nullable(spec, "mode", Optional.ofNullable(status.mode()).map(Mode::getValue).orElse(null), String.class);
+        spec = nullable(spec, POWER, status.power(), Boolean.class);
+        spec = nullable(spec, MODE, Optional.ofNullable(status.mode()).map(Mode::getValue).orElse(null), String.class);
         spec = nullable(spec, "targetTemperature", status.targetTemperature(), Integer.class);
         spec = nullable(spec, "roomTemperature", status.roomTemperature(), Integer.class);
         spec = nullable(spec, "fanSpeed", Optional.ofNullable(status.fanSpeed()).map(FanSpeed::getValue).orElse(null),
@@ -91,8 +95,8 @@ public class AirconStateRepository {
             .bind("unitId", unitId)
             .bind("at", at)
             .bind("source", source.getValue());
-        spec = nullable(spec, "power", status.power(), Boolean.class);
-        spec = nullable(spec, "mode", Optional.ofNullable(status.mode()).map(Mode::getValue).orElse(null), String.class);
+        spec = nullable(spec, POWER, status.power(), Boolean.class);
+        spec = nullable(spec, MODE, Optional.ofNullable(status.mode()).map(Mode::getValue).orElse(null), String.class);
         spec = nullable(spec, "targetTemperature", status.targetTemperature(), Integer.class);
         spec = nullable(spec, "fanSpeed", Optional.ofNullable(status.fanSpeed()).map(FanSpeed::getValue).orElse(null),
             String.class);
@@ -105,8 +109,8 @@ public class AirconStateRepository {
             .map(row -> new StoredState(
                 row.get("unit_id", Long.class),
                 new UnitStatus(
-                    row.get("power", Boolean.class),
-                    text(row, "mode").flatMap(Mode::ofValue).orElse(null),
+                    row.get(POWER, Boolean.class),
+                    text(row, MODE).flatMap(Mode::ofValue).orElse(null),
                     row.get("target_temperature", Integer.class),
                     row.get("room_temperature", Integer.class),
                     text(row, "fan_speed").flatMap(FanSpeed::ofValue).orElse(null),
