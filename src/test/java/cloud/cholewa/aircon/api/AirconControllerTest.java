@@ -3,6 +3,7 @@ package cloud.cholewa.aircon.api;
 import cloud.cholewa.aircon.api.model.AirconReply;
 import cloud.cholewa.aircon.api.model.CommandRequest;
 import cloud.cholewa.aircon.api.model.RoomCommandReply;
+import cloud.cholewa.aircon.api.model.WindowReply;
 import cloud.cholewa.aircon.command.CommandService;
 import cloud.cholewa.aircon.config.ExceptionHandlerConfig;
 import cloud.cholewa.aircon.error.AirconException;
@@ -34,7 +35,7 @@ class AirconControllerTest {
 
     private static final AirconReply OFFICE = new AirconReply(140, "Air conditioner", RoomName.OFFICE, true, Mode.COOL,
         22, 24, FanSpeed.MEDIUM_LOW, 0, 2, false, false, false, true, true, null, LocalDateTime.of(2026, 11, 7, 13, 15, 45), true,
-        null);
+        null, new WindowReply("open", LocalDateTime.of(2026, 11, 7, 13, 10), true, LocalDateTime.of(2026, 11, 7, 14, 13)));
 
     @Autowired
     private WebTestClient webTestClient;
@@ -50,7 +51,7 @@ class AirconControllerTest {
     void should_answer_every_unit_with_what_is_known_of_it() {
         when(unitService.units()).thenReturn(Mono.just(List.of(OFFICE,
             new AirconReply(143, "Air conditioner", RoomName.HALL_UP, null, null, null, null, null, null, null, null,
-                null, null, null, null, null, null, null, null))));
+                null, null, null, null, null, null, null, null, null))));
 
         webTestClient.get().uri("")
             .exchange()
@@ -60,7 +61,9 @@ class AirconControllerTest {
                   {"id": 140, "name": "Air conditioner", "room": "office", "power": true, "mode": "cool",
                    "targetTemperature": 22, "roomTemperature": 24, "fanSpeed": "medium-low", "swingVertical": 0,
                    "swingHorizontal": 2, "quiet": false, "turbo": false, "sleep": false, "display": true,
-                   "reachable": true, "updatedAt": "2026-11-07T13:15:45", "lastCommandConfirmed": true},
+                   "reachable": true, "updatedAt": "2026-11-07T13:15:45", "lastCommandConfirmed": true,
+                   "window": {"state": "open", "openSince": "2026-11-07T13:10:00", "hold": true,
+                              "restoreUntil": "2026-11-07T14:13:00"}},
                   {"id": 143, "name": "Air conditioner", "room": "hall up"}
                 ]""", JsonCompareMode.STRICT);
     }

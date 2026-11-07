@@ -1,6 +1,7 @@
 package cloud.cholewa.aircon.unit;
 
 import cloud.cholewa.aircon.api.model.AirconReply;
+import cloud.cholewa.aircon.api.model.WindowReply;
 import cloud.cholewa.aircon.command.CommandOutcomes;
 import cloud.cholewa.aircon.error.AirconError;
 import cloud.cholewa.aircon.error.AirconException;
@@ -8,6 +9,8 @@ import cloud.cholewa.aircon.registry.AirConditioner;
 import cloud.cholewa.aircon.registry.UnitRegistry;
 import cloud.cholewa.aircon.state.StateStore;
 import cloud.cholewa.aircon.state.UnitState;
+import cloud.cholewa.aircon.window.RoomWindow;
+import cloud.cholewa.aircon.window.WindowStates;
 import cloud.cholewa.home.model.RoomName;
 import org.junit.jupiter.api.Test;
 import reactor.test.StepVerifier;
@@ -30,12 +33,13 @@ class UnitServiceTest {
     private static final UnitStatus COOLING = new UnitStatus(true, Mode.COOL, 22, 24, FanSpeed.AUTO, 0, 0, false, false,
         false, true, "hid");
     private static final AirconReply OFFICE_COOLING = new AirconReply(140, "Air conditioner", RoomName.OFFICE, true,
-        Mode.COOL, 22, 24, FanSpeed.AUTO, 0, 0, false, false, false, true, true, null, AT, null, null);
+        Mode.COOL, 22, 24, FanSpeed.AUTO, 0, 0, false, false, false, true, true, null, AT, null, null, null);
 
     private final UnitRegistry registry = mock(UnitRegistry.class);
     private final StateStore store = mock(StateStore.class);
     private final CommandOutcomes outcomes = new CommandOutcomes();
-    private final UnitService service = new UnitService(registry, store, outcomes);
+    private final WindowStates windows = mock(WindowStates.class);
+    private final UnitService service = new UnitService(registry, store, outcomes, windows);
 
     @Test
     void should_refuse_while_the_registry_is_not_known() {
@@ -56,7 +60,7 @@ class UnitServiceTest {
 
         service.units().as(StepVerifier::create)
             .expectNext(List.of(OFFICE_COOLING, new AirconReply(143, "Air conditioner", RoomName.BEDROOM, null, null,
-                null, null, null, null, null, null, null, null, null, null, null, null, null, null)))
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null)))
             .verifyComplete();
     }
 
@@ -87,6 +91,23 @@ class UnitServiceTest {
             .assertNext(reply -> {
                 assertThat(reply.lastCommandConfirmed()).isFalse();
                 assertThat(reply.minimumRestoredAt()).isEqualTo(AT.minusMinutes(5));
+            })
+            .verifyComplete();
+    }
+
+    //the window of the room as heating-service gave it, and until when the stopped unit is set back (HAS-384)
+    @Test
+    void should_answer_the_window_of_the_room() {
+        when(registry.current()).thenReturn(Optional.of(List.of(OFFICE, BEDROOM)));
+        when(store.of(140)).thenReturn(Optional.of(new UnitState(COOLING, true, AT, null)));
+        when(windows.of("office")).thenReturn(Optional.of(new RoomWindow("open", AT.minusMinutes(5), true)));
+        when(windows.restoreUntil(140)).thenReturn(Optional.of(AT.plusMinutes(58)));
+
+        service.units().as(StepVerifier::create)
+            .assertNext(replies -> {
+                assertThat(replies.get(0).window()).isEqualTo(
+                    new WindowReply("open", AT.minusMinutes(5), true, AT.plusMinutes(58)));
+                assertThat(replies.get(1).window()).as("a window not known is left out").isNull();
             })
             .verifyComplete();
     }

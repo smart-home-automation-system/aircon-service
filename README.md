@@ -35,12 +35,13 @@ cooling, the server room, the empty house, a lost grid).
 **Today**: the units of the device registry (the five of the house since HAS-393), the driver of the Gree
 protocol (HAS-380), the state of every unit, read every 30 s and stored (HAS-381), served by three reads, and the
 commands with the minimum of 22 °C in cooling - in the API and against the remote (HAS-382), and the availability
-monitor on the technical channel of Discord (HAS-383).
+monitor on the technical channel of Discord (HAS-383), and the open windows: a window open in the room stops the unit,
+the closed window sets it back (HAS-384).
 What comes next:
 
 | Task | What |
 |---|---|
-| HAS-384 to HAS-391 | the open windows, the empty house and a lost grid, the rules per unit, the power of the plugs, the run hours |
+| HAS-385 to HAS-391 | the empty house and a lost grid, the rules per unit, the power of the plugs, the run hours |
 
 # The Gree protocol
 
@@ -64,8 +65,8 @@ waits 3 s for its answer and is sent again up to twice (`aircon.gree.*`).
 - **The broker**: one connection, `/notification` (user `notification`) - the alerts of the availability monitor
   through `NotificationPublisher` of `cholewa-commons`. **`rabbitmq-password` is mandatory** (`cholewa.required-properties`);
   a local run publishes into the dev queue (`cholewa.notification.env: dev`).
-- Build: `mvn verify` (JDK 21) - **needs a running Docker**: `AirconStateRepositoryTest` runs the SQL of the
-  state against a PostgreSQL of Testcontainers. The driver is tested against a fake unit on a UDP port of the
+- Build: `mvn verify` (JDK 21) - **needs a running Docker**: `AirconStateRepositoryTest` and `WindowHoldRepositoryTest` run
+  their SQL against a PostgreSQL of Testcontainers. The driver is tested against a fake unit on a UDP port of the
   loopback, with a made-up MAC and key.
 - Ports: local profile `6015` (management `8015`); in the deployed `home` profile the service
   listens on `6200` and Actuator on `8200` like every service in the cluster. The ingress routes
@@ -79,7 +80,8 @@ waits 3 s for its answer and is sent again up to twice (`aircon.gree.*`).
   service refuses to start without it (`cholewa.required-properties`). Flyway runs in `home` /
   `local` and is off under `test`. **A local run with the real values is the production database.**
 - A local run reads the registry of `database-service` on `localhost:6005` and binds the units it
-  finds - a read, but a real one, of the units of the house.
+  finds - a read, but a real one, of the units of the house; it reads the windows from `heating-service` on
+  `localhost:6002`, and **stops and sets back the real units** when a window there holds.
 
 # API
 
@@ -87,7 +89,7 @@ Under the base path `/home/aircon`, routed by the gateway by path, every method 
 
 | Method | Path | Answer |
 |---|---|---|
-| `GET` | `/home/aircon` | every air conditioner of the registry (the kind `air conditioner`, switched on) in its order, with its state as last read (every 30 s): `id`, `name`, `room`, `power`, `mode` (`auto`, `cool`, `dry`, `fan`, `heat`), `targetTemperature` and `roomTemperature` in °C, `fanSpeed` (`auto`, `low`, `medium-low`, `medium`, `medium-high`, `high`), `swingVertical` / `swingHorizontal` (the position codes of the unit), `quiet`, `turbo`, `sleep`, `display`, `reachable` (whether the last read answered), `unreachableSince` (since when it does not answer - HAS-383) and `updatedAt` (house time of the last read that answered). **A field not known is left out** - a unit not read yet answers `id`, `name` and `room` alone, `reachable` is left out after a start until the first read; a unit that stopped answering keeps what it reported, with `reachable: false`. `503 REGISTRY_UNAVAILABLE` until the registry was read once |
+| `GET` | `/home/aircon` | every air conditioner of the registry (the kind `air conditioner`, switched on) in its order, with its state as last read (every 30 s): `id`, `name`, `room`, `power`, `mode` (`auto`, `cool`, `dry`, `fan`, `heat`), `targetTemperature` and `roomTemperature` in °C, `fanSpeed` (`auto`, `low`, `medium-low`, `medium`, `medium-high`, `high`), `swingVertical` / `swingHorizontal` (the position codes of the unit), `quiet`, `turbo`, `sleep`, `display`, `reachable` (whether the last read answered), `unreachableSince` (since when it does not answer - HAS-383), `updatedAt` (house time of the last read that answered), `lastCommandConfirmed`, `minimumRestoredAt` (HAS-382) and `window` (HAS-384: `state` - `open`, `closed`, `no sensor`, `unknown` -, `openSince` and `hold` as heating-service last gave them for the room, left out while it does not answer; `restoreUntil` while the window holds the unit stopped). **A field not known is left out** - a unit not read yet answers `id`, `name` and `room` alone, `reachable` is left out after a start until the first read; a unit that stopped answering keeps what it reported, with `reachable: false`. `503 REGISTRY_UNAVAILABLE` until the registry was read once |
 | `GET` | `/home/aircon/{id}` | one unit, the same fields; `404 NOT_FOUND_AIRCON` for an id no air conditioner of the registry has |
 | `GET` | `/home/aircon/rooms/{room}` | the units of a room by the name of the registry (`office`, `hall up`); `404 NOT_FOUND_ROOM` for a room without a unit, or a name that is no room |
 | `POST` | `/home/aircon/{id}?source=` | **a command to the unit - a write to the house**: a JSON body of optional fields in the words of the reads (`power`, `mode`, `targetTemperature`, `fanSpeed`, `swingVertical`, `swingHorizontal`, `quiet`, `turbo`, `sleep`, `display`); `source` is `dashboard` (the default), `rule`, `window`, `empty-house` or `grid-outage`. `202` once the unit took it; read back 2 s later - not taken, sent once more and read again, never a third time - and told as `lastCommandConfirmed` in the reads; the change in the history under the source. `400 INVALID_COMMAND` with the reason (the rules below, an empty command, another source), `502 DEVICE_FAILED` when the unit did not answer (it may have taken it all the same), `404 NOT_FOUND_AIRCON`, `503 REGISTRY_UNAVAILABLE` |
@@ -115,6 +117,10 @@ services needs `GRANT USAGE, CREATE ON SCHEMA public` before the first start, or
   same way: over the rows of 0.2.0, and 0.2.0 starts over V3.
 - `V4` (HAS-383): `aircon_availability_alert`, the open alerts of the availability monitor (a unit told out and not yet
   told back), so that a restart neither repeats an alert nor forgets a return. Rehearsed the same way with 0.3.0.
+- `V5` (HAS-384): `aircon_window_hold`, a row for every unit an open window stopped, with what it was doing then - the
+  mode, the target, the fan, the louvres, quiet, turbo, sleep - and how it ended (`restored`, `expired`, `cancelled`,
+  `refused`); one open row per unit (a partial unique index); a stop that ended is kept 90 days. Rehearsed the same way
+  with 0.4.0.
 
 # The availability monitor
 
@@ -122,3 +128,15 @@ Every minute (HAS-383): a unit that has not answered for `aircon.monitor.offline
 tracker) is **one alert a pass naming every unit out** on the technical channel of Discord (`alert`, no SMS), a reminder
 every `reminder-every` (1 h) while out, and an info when it answers again. After a restart a unit is not back until a
 read answered. A notification that fails changes nothing and is due again at the next pass.
+
+# The open windows
+
+Every minute (HAS-384) the rooms of `heating-service` (`GET /home/heating/rooms`, >= 1.20.0, k8s DNS) give the window of the
+room of every unit - judged there by the rule that holds the heaters: a window or door open for 3 min holds. A unit
+that is on in a room whose window holds is **switched off** (source `window`), what it was doing kept first in
+`aircon_window_hold`; once per opening - a unit a person switched on again with the window open is left alone.
+The windows closed within `aircon.window.restore-within` (1 h) of the stop **set it back as it was** (source
+`window`); later the unit stays off. A change of the remote or the dashboard while it is held gives the restore up.
+A room heating-service does not know, `no sensor`, `unknown` or heating-service not answering **never stops a
+unit**, and never sets one back - the stop then waits, at most until `restore-within`. A command the unit did not
+take is sent again the next minute; a unit that does not answer is sent nothing until it answers again.

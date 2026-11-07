@@ -120,6 +120,7 @@ public class StateTracker {
             .map(source -> source == ChangeSource.REMOTE
                 ? commandOutcomes.takePending(unit.id(), at).orElse(ChangeSource.REMOTE)
                 : source);
+        change.ifPresent(source -> stateStore.changed(unit.id(), source, at));
         return repository.recordState(unit.id(), status, at)
             .then(Mono.justOrEmpty(change).flatMap(source -> repository.recordChange(unit.id(), status, source, at)))
             .onErrorResume(failure -> Mono.fromRunnable(() -> log.warn(
