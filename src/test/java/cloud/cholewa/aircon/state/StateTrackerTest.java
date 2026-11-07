@@ -1,5 +1,7 @@
 package cloud.cholewa.aircon.state;
 
+import cloud.cholewa.aircon.command.CommandOutcomes;
+import cloud.cholewa.aircon.command.CommandProperties;
 import cloud.cholewa.aircon.driver.GreeClient;
 import cloud.cholewa.aircon.driver.GreeTimeoutException;
 import cloud.cholewa.aircon.registry.AirConditioner;
@@ -16,10 +18,12 @@ import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -50,7 +54,9 @@ class StateTrackerTest {
     private final GreeClient greeClient = mock(GreeClient.class);
     private final AirconStateRepository repository = mock(AirconStateRepository.class);
     private final StateStore store = new StateStore();
-    private final StateTracker tracker = new StateTracker(registry, greeClient, store, repository, CLOCK);
+    private final CommandOutcomes outcomes = new CommandOutcomes();
+    private final StateTracker tracker = new StateTracker(registry, greeClient, store, repository, CLOCK, outcomes,
+        new CommandProperties(Duration.ofSeconds(2), Duration.ofSeconds(60)));
 
     @BeforeEach
     void setUp() {
@@ -168,6 +174,55 @@ class StateTrackerTest {
         order.verify(greeClient).status(OFFICE);
         order.verify(greeClient).status(BEDROOM);
         order.verify(greeClient).status(OFFICE);
+    }
+
+    //the change a read shows after a command is the sender's, taken once - the next one is the remote's again
+    @Test
+    void should_write_the_change_of_a_command_under_its_sender() {
+        when(registry.current()).thenReturn(Optional.of(List.of(OFFICE)));
+        when(greeClient.status(OFFICE)).thenReturn(Mono.just(OFF), Mono.just(ON), Mono.just(OFF));
+
+        tracker.track().as(StepVerifier::create).verifyComplete();
+        outcomes.expect(140, ChangeSource.DASHBOARD, NOW.plusSeconds(60));
+        tracker.track().as(StepVerifier::create).verifyComplete();
+        tracker.track().as(StepVerifier::create).verifyComplete();
+
+        verify(repository).recordChange(140, ON, ChangeSource.DASHBOARD, NOW);
+        verify(repository).recordChange(140, OFF, ChangeSource.REMOTE, NOW);
+    }
+
+    //the guard (HAS-382): cooling below 22 C is written back to 22 C in the same pass, the next change is the guard's
+    @Test
+    void should_raise_cooling_below_the_minimum_to_22() {
+        final UnitStatus coolingAt18 = new UnitStatus(true, Mode.COOL, 18, 22, FanSpeed.AUTO, 0, 0, false, false, false,
+            true, "hid");
+        final UnitStatus coolingAt22 = new UnitStatus(true, Mode.COOL, 22, 22, FanSpeed.AUTO, 0, 0, false, false, false,
+            true, "hid");
+        when(registry.current()).thenReturn(Optional.of(List.of(OFFICE)));
+        when(greeClient.status(OFFICE)).thenReturn(Mono.just(ON), Mono.just(coolingAt18), Mono.just(coolingAt22));
+        when(greeClient.command(any(), any())).thenReturn(Mono.empty());
+
+        tracker.track().as(StepVerifier::create).verifyComplete();
+        tracker.track().as(StepVerifier::create).verifyComplete();
+        verify(greeClient).command(OFFICE, Map.of("SetTem", 22, "TemUn", 0));
+        assertThat(outcomes.minimumRestoredAt(140)).contains(NOW);
+
+        tracker.track().as(StepVerifier::create).verifyComplete();
+        verify(repository).recordChange(140, coolingAt18, ChangeSource.REMOTE, NOW);
+        verify(repository).recordChange(140, coolingAt22, ChangeSource.MINIMUM_RESTORED, NOW);
+    }
+
+    //off, heating or at the minimum: nothing to guard
+    @Test
+    void should_guard_only_a_unit_cooling_below_the_minimum() {
+        assertThat(StateTracker.coolsBelowMinimum(new UnitStatus(true, Mode.COOL, 21, 22, FanSpeed.AUTO, 0, 0, false,
+            false, false, true, null))).isTrue();
+        assertThat(StateTracker.coolsBelowMinimum(new UnitStatus(false, Mode.COOL, 18, 22, FanSpeed.AUTO, 0, 0, false,
+            false, false, true, null))).isFalse();
+        assertThat(StateTracker.coolsBelowMinimum(new UnitStatus(true, Mode.HEAT, 18, 22, FanSpeed.AUTO, 0, 0, false,
+            false, false, true, null))).isFalse();
+        assertThat(StateTracker.coolsBelowMinimum(OFF)).isFalse();
+        assertThat(StateTracker.coolsBelowMinimum(ON)).isFalse();
     }
 
     @Test

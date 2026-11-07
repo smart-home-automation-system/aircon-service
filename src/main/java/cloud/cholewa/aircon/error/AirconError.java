@@ -5,7 +5,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
-//The causes of a request the API refuses (HAS-380, HAS-381). Their names are the codes of the answer (ErrorId.codeOf) -
+//The causes of a request the API refuses (HAS-380, HAS-381, HAS-382). Their names are the codes of the answer (ErrorId.codeOf) -
 //wire contract for a caller that branches on them, the dashboard first of all, pinned by AirconErrorTest
 @Getter
 @RequiredArgsConstructor(access = AccessLevel.PRIVATE)
@@ -18,7 +18,14 @@ public enum AirconError implements ErrorId {
     NOT_FOUND_AIRCON("Air conditioner not found"),
 
     //no air conditioner of the registry is in this room - or no room of the house is called so
-    NOT_FOUND_ROOM("Room not found");
+    NOT_FOUND_ROOM("Room not found"),
+
+    //a command the rules refuse (CommandRules: 22 C at least in cooling, 16-30 C, turbo and quiet not in dry or fan),
+    //an empty one, or one of an unknown source - the details say which
+    INVALID_COMMAND("Invalid command"),
+
+    //the unit did not answer a command after every attempt - it may have taken it all the same
+    DEVICE_FAILED("Device failed");
 
     private final String description;
 }

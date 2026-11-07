@@ -46,6 +46,11 @@ aircon:
     timeout: PT3S
     retries: 2
     rebind-after: 3
+  # the commands (HAS-382): read back confirm-after later; the change a read shows within expect-for is the sender's, after
+  # it the remote's (a bare duration is seconds)
+  command:
+    confirm-after: PT2S
+    expect-for: PT60S
 
 cholewa:
   # refuses the start before the first bean when one of these has no value (cholewa-commons >= 1.9.0)

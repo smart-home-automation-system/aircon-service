@@ -1,5 +1,6 @@
 package cloud.cholewa.aircon;
 
+import cloud.cholewa.aircon.command.CommandProperties;
 import cloud.cholewa.aircon.driver.GreeProperties;
 import cloud.cholewa.commons.database.DatabaseProperties;
 import cloud.cholewa.shelly.http.ShellyGen1Client;
@@ -26,6 +27,8 @@ class AirconServiceApplicationTest {
     private ApplicationContext applicationContext;
     @Autowired
     private GreeProperties greeProperties;
+    @Autowired
+    private CommandProperties commandProperties;
 
     @Test
     void contextLoads() {
@@ -67,6 +70,12 @@ class AirconServiceApplicationTest {
     @Test
     void should_speak_to_the_units_as_agreed() {
         assertThat(greeProperties).isEqualTo(new GreeProperties(7000, Duration.ofSeconds(3), 2, 3));
+    }
+
+    //HAS-382: a command read back 2 s later, its change the sender's for a minute
+    @Test
+    void should_confirm_the_commands_as_agreed() {
+        assertThat(commandProperties).isEqualTo(new CommandProperties(Duration.ofSeconds(2), Duration.ofSeconds(60)));
     }
 
     //the plugs that feed the units (their power card, later in the epic) are read through the clients of shelly-client
