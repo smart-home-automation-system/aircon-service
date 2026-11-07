@@ -14,9 +14,23 @@ import java.util.concurrent.ConcurrentHashMap;
 public class StateStore {
 
     private final Map<Long, UnitState> states = new ConcurrentHashMap<>();
+    private final Map<Long, Change> changes = new ConcurrentHashMap<>();
+
+    //the last change of what a unit does the reads saw in this run, and whose it was (HAS-384: a change of the remote or
+    //the dashboard while a window holds the unit cancels its restore)
+    public record Change(ChangeSource source, LocalDateTime at) {
+    }
 
     public Optional<UnitState> of(final long unitId) {
         return Optional.ofNullable(states.get(unitId));
+    }
+
+    public Optional<Change> lastChange(final long unitId) {
+        return Optional.ofNullable(changes.get(unitId));
+    }
+
+    void changed(final long unitId, final ChangeSource source, final LocalDateTime at) {
+        changes.put(unitId, new Change(source, at));
     }
 
     //a read that answered; answers what was known before it

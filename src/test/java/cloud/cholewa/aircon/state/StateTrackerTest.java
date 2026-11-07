@@ -191,6 +191,23 @@ class StateTrackerTest {
         verify(repository).recordChange(140, OFF, ChangeSource.REMOTE, NOW);
     }
 
+    //the last change and whose it was, in memory - what gives up the restore of a unit a window stopped (HAS-384)
+    @Test
+    void should_remember_the_last_change_and_its_sender() {
+        when(registry.current()).thenReturn(Optional.of(List.of(OFFICE)));
+        when(greeClient.status(OFFICE)).thenReturn(Mono.just(OFF), Mono.just(ON), Mono.just(ON));
+
+        tracker.track().as(StepVerifier::create).verifyComplete();
+        assertThat(store.lastChange(140)).contains(new StateStore.Change(ChangeSource.FIRST_READ, NOW));
+        outcomes.expect(140, ChangeSource.WINDOW, NOW.plusSeconds(60));
+        tracker.track().as(StepVerifier::create).verifyComplete();
+        assertThat(store.lastChange(140)).contains(new StateStore.Change(ChangeSource.WINDOW, NOW));
+        tracker.track().as(StepVerifier::create).verifyComplete();
+
+        assertThat(store.lastChange(140)).as("a read without a change leaves it")
+            .contains(new StateStore.Change(ChangeSource.WINDOW, NOW));
+    }
+
     //the guard (HAS-382): cooling below 22 C is written back to 22 C in the same pass, the next change is the guard's
     @Test
     void should_raise_cooling_below_the_minimum_to_22() {
