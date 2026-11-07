@@ -24,13 +24,16 @@ public class EpisodeRepository {
 
     private static final String ALL = "SELECT source, episode, acted_at FROM aircon_automation_episode";
 
+    //a bind parameter and a column of the same name
+    private static final String EPISODE = "episode";
+
     private final DatabaseClient databaseClient;
 
     public Mono<Void> save(final ChangeSource source, final Episode episode) {
         final DatabaseClient.GenericExecuteSpec spec = databaseClient.sql(SAVE)
             .bind("source", source.getValue())
             .bind("at", episode.at());
-        return (episode.key() == null ? spec.bindNull("episode", LocalDateTime.class) : spec.bind("episode", episode.key()))
+        return (episode.key() == null ? spec.bindNull(EPISODE, LocalDateTime.class) : spec.bind(EPISODE, episode.key()))
             .fetch().rowsUpdated().then();
     }
 
@@ -39,7 +42,7 @@ public class EpisodeRepository {
         return databaseClient.sql(ALL)
             .map(row -> new Acted(
                 sourceOf(row.get("source", String.class)),
-                new Episode(row.get("episode", LocalDateTime.class), row.get("acted_at", LocalDateTime.class))))
+                new Episode(row.get(EPISODE, LocalDateTime.class), row.get("acted_at", LocalDateTime.class))))
             .all()
             .filter(acted -> acted.source() != null);
     }
