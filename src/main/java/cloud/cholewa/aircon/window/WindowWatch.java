@@ -60,6 +60,7 @@ public class WindowWatch {
     private final WindowHoldRepository repository;
     private final WindowStates windowStates;
     private final RoomTemperatures roomTemperatures;
+    private final RoomSchedules roomSchedules;
     private final StateStore stateStore;
     private final RuleCommands ruleCommands;
     private final AutomationState automationState;
@@ -94,7 +95,10 @@ public class WindowWatch {
     //the window of every room heating-service answers, by the word of the room; none known when it does not answer
     private Mono<Map<String, RoomWindow>> windows() {
         return heatingClient.getRooms()
-            .doOnNext(rooms -> roomTemperatures.rooms(temperatures(rooms)))
+            .doOnNext(rooms -> {
+                roomTemperatures.rooms(temperatures(rooms));
+                roomSchedules.rooms(schedules(rooms));
+            })
             .map(WindowWatch::byRoom)
             .doOnNext(read -> {
                 windowStates.rooms(read);
@@ -105,6 +109,7 @@ public class WindowWatch {
             .onErrorResume(failure -> Mono.fromSupplier(() -> {
                 windowStates.unknown();
                 roomTemperatures.unknown();
+                roomSchedules.unknown();
                 if (!heatingFailing.getAndSet(true)) {
                     log.warn("The windows could not be read from heating-service, none stops or sets back a unit: {}",
                         failure.getMessage());
@@ -119,6 +124,15 @@ public class WindowWatch {
             .filter(room -> room != null && room.name() != null && room.temperature() != null
                 && room.temperature().value() != null && room.temperature().updatedAt() != null)
             .collect(Collectors.toMap(HeatingRoom::name, HeatingRoom::temperature, (first, second) -> first));
+    }
+
+    //what the schedule of every room asks for now - for the heating by schedule (HAS-387); a room without a schedule now
+    //is known as such
+    private static Map<String, RoomSchedules.Schedule> schedules(final List<HeatingRoom> rooms) {
+        return rooms.stream()
+            .filter(room -> room != null && room.name() != null)
+            .collect(Collectors.toMap(HeatingRoom::name,
+                room -> new RoomSchedules.Schedule(room.scheduledTemperature().orElse(null)), (first, second) -> first));
     }
 
     private static Map<String, RoomWindow> byRoom(final List<HeatingRoom> rooms) {

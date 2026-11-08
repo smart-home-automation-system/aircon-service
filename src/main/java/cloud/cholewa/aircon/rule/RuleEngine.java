@@ -9,10 +9,13 @@ import cloud.cholewa.aircon.command.CommandOutcomes;
 import cloud.cholewa.aircon.registry.AirConditioner;
 import cloud.cholewa.aircon.registry.UnitRegistry;
 import cloud.cholewa.aircon.rule.RuleEvaluator.Action;
+import cloud.cholewa.aircon.rule.RuleEvaluator.Heating;
 import cloud.cholewa.aircon.state.ChangeSource;
 import cloud.cholewa.aircon.state.StateStore;
 import cloud.cholewa.aircon.unit.Mode;
+import cloud.cholewa.aircon.window.HeatingClient;
 import cloud.cholewa.aircon.window.HeatingRoom;
+import cloud.cholewa.aircon.window.RoomSchedules;
 import cloud.cholewa.aircon.window.RoomTemperatures;
 import cloud.cholewa.aircon.window.RoomWindow;
 import cloud.cholewa.aircon.window.WindowStates;
@@ -28,10 +31,12 @@ import reactor.core.publisher.Mono;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -39,7 +44,10 @@ import java.util.stream.Collectors;
 //read from heating-service (RoomTemperatures - one read of heating-service a minute) and the state the tracker keeps,
 //each judged by RuleEvaluator; a command through RuleCommands under the source rule (aircon_rule_run). One unit after the
 //other, one that fails cuts neither the others nor the pass; a command not taken is judged again the next minute - but
-//after MAX_NOT_TAKEN in a row the rule pauses for that unit (one WARN) until it asks for nothing or a command is taken
+//after MAX_NOT_TAKEN in a row the rule pauses for that unit (one WARN) until it asks for nothing or a command is taken.
+//Since HAS-387 the heating by schedule: what the schedule of the room asks for (RoomSchedules, written by the same read of
+//the window pass) and the house switch of heating-service, read once a pass while a rule of a registered unit heats by
+//schedule - a read that fails leaves the heating not known for the pass (a WARN at the first failure, an INFO at the return)
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -52,6 +60,8 @@ public class RuleEngine {
     private final UnitRegistry unitRegistry;
     private final StateStore stateStore;
     private final RoomTemperatures roomTemperatures;
+    private final RoomSchedules roomSchedules;
+    private final HeatingClient heatingClient;
     private final WindowStates windowStates;
     private final AutomationState automationState;
     private final RuleCommands ruleCommands;
@@ -62,6 +72,7 @@ public class RuleEngine {
     //per unit: the commands of the rule in a row the unit did not take, and the units the last command of the rule went to
     private final Map<Long, Integer> notTaken = new ConcurrentHashMap<>();
     private final Set<Long> sent = ConcurrentHashMap.newKeySet();
+    private final AtomicBoolean houseSwitchFailing = new AtomicBoolean();
 
     //a minute and a half in: the registry, the units and the rooms of heating-service were read at least once
     @Scheduled(initialDelayString = "PT90S", fixedDelayString = "PT1M")
@@ -77,16 +88,41 @@ public class RuleEngine {
                     final LocalDateTime now = LocalDateTime.now(clock);
                     final Map<Long, AirConditioner> byId = units.stream()
                         .collect(Collectors.toMap(AirConditioner::id, Function.identity()));
-                    return Flux.fromIterable(rules)
+                    final List<AirconRule> registered = rules.stream()
                         .filter(rule -> byId.containsKey(rule.unitId()))
-                        .concatMap(rule -> judge(rule, byId.get(rule.unitId()), now))
+                        .toList();
+                    return houseSwitch(registered)
+                        .flatMapMany(house -> Flux.fromIterable(registered)
+                            .concatMap(rule -> judge(rule, byId.get(rule.unitId()), house.orElse(null), now)))
                         .then();
                 }))
             .onErrorResume(failure -> Mono.fromRunnable(() -> log.error("The pass of the rules failed: {}",
                 failure.toString())));
     }
 
-    private Mono<Void> judge(final AirconRule rule, final AirConditioner unit, final LocalDateTime now) {
+    //the house switch of heating-service, read only while a rule heats by schedule; empty when not read or not known
+    private Mono<Optional<Boolean>> houseSwitch(final List<AirconRule> rules) {
+        return Mono.just(rules)
+            .filter(read -> read.stream().anyMatch(rule -> rule.heatBySchedule().enabled()))
+            .flatMap(read -> heatingClient.getHouseSwitch()
+                .doOnNext(on -> {
+                    if (houseSwitchFailing.getAndSet(false)) {
+                        log.info("heating-service answers again: the house switch is known");
+                    }
+                })
+                .map(Optional::of)
+                .onErrorResume(failure -> Mono.fromSupplier(() -> {
+                    if (!houseSwitchFailing.getAndSet(true)) {
+                        log.warn("The house switch could not be read from heating-service, no unit heats by schedule: {}",
+                            failure.getMessage());
+                    }
+                    return Optional.empty();
+                })))
+            .defaultIfEmpty(Optional.empty());
+    }
+
+    private Mono<Void> judge(final AirconRule rule, final AirConditioner unit, final Boolean house,
+                             final LocalDateTime now) {
         return Mono.defer(() -> {
             final String room = Optional.ofNullable(unit.room()).map(RoomName::getValue).orElse(null);
             final Double temperature = roomTemperatures.of(room)
@@ -95,9 +131,12 @@ public class RuleEngine {
                 .orElse(null);
             final boolean heldOff = automationState.grid().map(GridState::lost).orElse(false)
                 || windowStates.of(room).map(RoomWindow::holds).orElse(false);
-            final Action action = RuleEvaluator.decide(rule, stateStore.of(unit.id()).orElse(null), temperature,
+            final Heating heating = Optional.ofNullable(house)
+                .flatMap(on -> roomSchedules.of(room).map(schedule -> new Heating(on, schedule.scheduledTemperature())))
+                .orElse(null);
+            final Action action = RuleEvaluator.decide(rule, stateStore.of(unit.id()).orElse(null), temperature, heating,
                 stateStore.lastChange(unit.id()).orElse(null), heldOff, now, properties.manualHold());
-            return act(action, rule, unit, temperature);
+            return act(action, rule, unit, temperature, heating);
         }).onErrorResume(failure -> Mono.fromRunnable(() -> log.warn(
             "The rule of air conditioner {} could not be acted on: {}", unit.id(), failure.getMessage())));
     }
@@ -118,12 +157,12 @@ public class RuleEngine {
     }
 
     private Mono<Void> act(final Action action, final AirconRule rule, final AirConditioner unit,
-                           final Double temperature) {
+                           final Double temperature, final Heating heating) {
         return Mono.just(action)
             .doOnNext(next -> forgetWhenSettled(next, unit.id()))
             .filter(next -> next != Action.NONE && !paused(unit.id()))
             .doOnNext(next -> sent.add(unit.id()))
-            .flatMap(next -> command(next, rule, unit, temperature));
+            .flatMap(next -> command(next, rule, unit, temperature, heating));
     }
 
     //nothing asked of the unit: what its commands came to is over
@@ -135,7 +174,7 @@ public class RuleEngine {
     }
 
     private Mono<Void> command(final Action action, final AirconRule rule, final AirConditioner unit,
-                               final Double temperature) {
+                               final Double temperature, final Heating heating) {
         return switch (action) {
             case NONE -> Mono.empty();
             case COOL -> Mono.fromRunnable(() -> log.info("Air conditioner {}: {} C above {} C, cooling at {} C", unit.id(),
@@ -144,11 +183,31 @@ public class RuleEngine {
             case OFF -> Mono.fromRunnable(() -> log.info("Air conditioner {}: {} C below {} C, switched off", unit.id(),
                     temperature, rule.keepBelow().threshold().subtract(rule.keepBelow().hysteresis())))
                 .then(Mono.defer(() -> ruleCommands.send(unit.id(), off(), ChangeSource.RULE, null)));
+            case HEAT -> Mono.justOrEmpty(RuleEvaluator.heatTarget(rule, heating))
+                .doOnNext(target -> log.info("Air conditioner {}: the schedule asks for {} C, heating at {} C", unit.id(),
+                    heating.scheduledTemperature(), target))
+                .flatMap(target -> ruleCommands.send(unit.id(), heat(target), ChangeSource.RULE, null));
+            case STOP_HEATING -> Mono.fromRunnable(() -> log.info("Air conditioner {}: {}, switched off", unit.id(),
+                    whyNotHeating(heating)))
+                .then(Mono.defer(() -> ruleCommands.send(unit.id(), off(), ChangeSource.RULE, null)));
         };
     }
 
     static CommandRequest cool(final AirconRule rule) {
         return new CommandRequest(true, Mode.COOL, rule.keepBelow().target(), null, null, null, null, null, null, null);
+    }
+
+    static CommandRequest heat(final int target) {
+        return new CommandRequest(true, Mode.HEAT, target, null, null, null, null, null, null, null);
+    }
+
+    private static String whyNotHeating(final Heating heating) {
+        if (!heating.houseOn()) {
+            return "the heating of the house is off";
+        }
+        return heating.scheduledTemperature() == null
+            ? "no heating schedule covers the room now"
+            : "the schedule asks for " + heating.scheduledTemperature() + " C, below what the unit heats at";
     }
 
     static CommandRequest off() {

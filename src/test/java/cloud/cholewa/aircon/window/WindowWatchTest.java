@@ -58,11 +58,12 @@ class WindowWatchTest {
     private final WindowHoldRepository repository = mock(WindowHoldRepository.class);
     private final WindowStates windowStates = new WindowStates();
     private final RoomTemperatures roomTemperatures = new RoomTemperatures();
+    private final RoomSchedules roomSchedules = new RoomSchedules();
     private final StateStore store = mock(StateStore.class);
     private final RuleCommands commands = mock(RuleCommands.class);
     private final AutomationState automation = mock(AutomationState.class);
     private final WindowWatch watch = new WindowWatch(registry, heating, repository, windowStates, roomTemperatures,
-        store, commands, automation, new WindowProperties(WITHIN), CLOCK);
+        roomSchedules, store, commands, automation, new WindowProperties(WITHIN), CLOCK);
 
     @BeforeEach
     void setUp() {
@@ -274,6 +275,28 @@ class WindowWatchTest {
         when(heating.getRooms()).thenReturn(Mono.error(new HeatingCallException("heating-service answered 503")));
         watch.watchOnce().as(StepVerifier::create).verifyComplete();
         assertThat(roomTemperatures.of("sanctum")).isEmpty();
+    }
+
+    //what the schedule of each room asks for, kept for the heating by schedule (HAS-387): a room without a schedule now is
+    //known as such, every room is forgotten with a failed read
+    @Test
+    void should_keep_what_the_schedules_of_the_rooms_ask_for() {
+        when(heating.getRooms()).thenReturn(Mono.just(List.of(
+            new HeatingRoom("sanctum", new RoomWindow("no sensor", null, false), null,
+                List.of(new HeatingRoom.Heater(21.0))),
+            new HeatingRoom("office", new RoomWindow("closed", null, false), null,
+                List.of(new HeatingRoom.Heater(null), new HeatingRoom.Heater(19.5), new HeatingRoom.Heater(20.5))),
+            new HeatingRoom("garden", new RoomWindow("no sensor", null, false)))));
+
+        watch.watchOnce().as(StepVerifier::create).verifyComplete();
+        assertThat(roomSchedules.of("sanctum")).contains(new RoomSchedules.Schedule(21.0));
+        assertThat(roomSchedules.of("office")).as("the most any heater asks for").contains(new RoomSchedules.Schedule(20.5));
+        assertThat(roomSchedules.of("garden")).as("no schedule now").contains(new RoomSchedules.Schedule(null));
+        assertThat(roomSchedules.of("loft")).as("not answered").isEmpty();
+
+        when(heating.getRooms()).thenReturn(Mono.error(new HeatingCallException("heating-service answered 503")));
+        watch.watchOnce().as(StepVerifier::create).verifyComplete();
+        assertThat(roomSchedules.of("sanctum")).isEmpty();
     }
 
     @Test
