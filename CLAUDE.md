@@ -221,8 +221,12 @@ firmware `362001065279+U-WB05RT13V1.45.bin`, `ver V3.4.M`, mid 10001:
   channel (the four indoor units are without power). An off not taken may have been carried out: the plug is switched on
   before `502 DEVICE_FAILED`. A row still `running` at a start is a cycle a restart cut off: the first pass of the plugs
   switches the plug on and fails the row. The table is separate from `aircon_rule_run` (the task named that one): a
-  cycle is of a plug, not of a unit, and keeps who asked. **What the units do after a cycle (resume or stay off) is checked
-  on the first real cycle the owner runs from Bruno** and written here.
+  cycle is of a plug, not of a unit, and keeps who asked. **The first real cycle** (the owner from Bruno, 2026-11-08 12:38,
+  every indoor unit off): `done` in 15.3 s; the four units **stayed off** after the power came back (a unit on cannot be
+  cycled, so whether one resumes is not known); office, livia and tobi answered within 10 s of the plug, bedroom (143)
+  only after about 3 min (one WARN of the state tracker, no alert - the monitor waits 5 min); the indoor plug drew
+  24.9 W while the units booted (`compressorRunning` true and the next cycle refused for 1-2 min), then 18 W again -
+  the standby of 20 W leaves about 2 W of margin.
 - **Tests use `mockwebserver3`** for the client of database-service, never the legacy
   `mockwebserver` (JUnit 4).
 - **Surefire activates the `test` profile for every class**; the `includes` match only
