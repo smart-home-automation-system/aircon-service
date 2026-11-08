@@ -5,8 +5,8 @@ state, commands and the rules of the house (open windows, 22 °C minimum in cool
 25 °C, the empty house, a lost grid, run hours). Scaffolded by HAS-380 with the units of the
 registry and the driver; the state of every unit since HAS-381; the commands and the guard of 22 °C since HAS-382;
 the availability monitor since HAS-383; the open windows since HAS-384; the empty house and a lost grid since HAS-385; the rule per unit since HAS-386; the frost
-protection by schedule since HAS-387; the draw of the plugs and the power cycle since HAS-390; the run hours come with
-HAS-391.
+protection by schedule since HAS-387; the draw of the plugs and the power cycle since HAS-390; the run hours and the
+filter reminder since HAS-391.
 
 Part of the smart-home-automation-system organization — org-wide conventions, the
 repository map and working rules come from the workspace-level context
@@ -36,8 +36,8 @@ IntelliJ.
 ## Build & run
 
 - Build + tests: `mvn verify` - **needs a running Docker** since HAS-381 (`AirconStateRepositoryTest`,
-  `WindowHoldRepositoryTest`, `RuleRunRepositoryTest`, `RuleRepositoryTest`, `PowerRepositoryTest` - Testcontainers
-  PostgreSQL).
+  `WindowHoldRepositoryTest`, `RuleRunRepositoryTest`, `RuleRepositoryTest`, `PowerRepositoryTest`, `FilterRepositoryTest` -
+  Testcontainers PostgreSQL).
 - Local run: `home,local` Spring profiles, port `6015` (Actuator `8015`); in-cluster port `6200`,
   Actuator `8200`. Needs `database-password` and the other `database-*` values. **The real values
   are the production database** - a migration is rehearsed on a throwaway PostgreSQL, never by a
@@ -227,6 +227,18 @@ firmware `362001065279+U-WB05RT13V1.45.bin`, `ver V3.4.M`, mid 10001:
   only after about 3 min (one WARN of the state tracker, no alert - the monitor waits 5 min); the indoor plug drew
   24.9 W while the units booted (`compressorRunning` true and the next cycle refused for 1-2 min), then 18 W again -
   the standby of 20 W leaves about 2 W of margin.
+- **The run hours and the filters** (HAS-391, `filter/`): the hours of a unit are **the time the history shows it on**
+  (`aircon_state_change`: every change lasts until the next one, the last until now - `HOURS` of `FilterRepository`,
+  PostgreSQL's `LEAD`), since its cleaning in `aircon_filter` (`V9`: `cleaned_at`, `reminded_hours`), or the whole
+  history before a cleaning is recorded. They count what the last read showed: a unit cut from its power while on (a lost
+  grid, the power cycle cannot cut one that is on) counts on until it is read again - accepted. `FilterWatch` every 10
+  minutes (3 min in, bounded 5 min) counts each registered unit into `FilterStore` (the reads answer it without a
+  statement) and names a filter due on Discord as an **info**: at `aircon.filter.remind-after-hours` (200) and every
+  `remind-again-hours` (50) more (`FilterReminder`, pure - a pass that missed steps names the last one alone); the step
+  is stored after the broker took it, so a restart never repeats one and a failed publish goes again. `POST
+  /{id}/filter-cleaned` stores the cleaning (the step forgotten) and sets the reads to 0 at once. `GET /{id}/runs` answers
+  the changes with their source by the rules of `HistoryRange` (moved to `history/`, shared with the power history);
+  `ChangeSource` is serialized as its word since.
 - **Tests use `mockwebserver3`** for the client of database-service, never the legacy
   `mockwebserver` (JUnit 4).
 - **Surefire activates the `test` profile for every class**; the `includes` match only
