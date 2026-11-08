@@ -37,7 +37,7 @@ protocol (HAS-380), the state of every unit, read every 30 s and stored (HAS-381
 commands with the minimum of 22 °C in cooling - in the API and against the remote (HAS-382), and the availability
 monitor on the technical channel of Discord (HAS-383), and the open windows: a window open in the room stops the unit,
 the closed window sets it back (HAS-384), the empty house and a lost grid switch the units off (HAS-385), and a rule per unit keeps its room below a
-temperature (HAS-386) and heats it by the heating schedule of the room (HAS-387).
+temperature (HAS-386) and protects it against frost by the heating schedule of the room (HAS-387).
 What comes next:
 
 | Task | What |
@@ -184,15 +184,16 @@ nothing.
 - **Never against a person**: within `aircon.rule.manual-hold` (30 min) of a change made with the remote or the dashboard
   the rule leaves the unit alone; a unit a person switched on is never switched off by it.
 - Not while something else holds the unit off - the grid lost, the window of its room; independent of who is at home.
-- **Heat by schedule** (HAS-387): every minute the switch of the heating of the house (`GET /home/heating` of
-  heating-service, read only while a rule heats by schedule) and what the schedule of the room asks for now
-  (`heaters[].scheduledTemperature` of `GET /home/heating/rooms`, read with the windows; heating-service >= 1.21.0 keeps
-  it for the radiator of sanctum it no longer drives). The house on and a schedule asking for 16 °C or more (rounded half
-  up to the whole degree of the unit) - the unit heats at it (`source=rule`), unless it heats at it already; no schedule
-  now, one below 16 °C ("do not heat" - the base level of 9 °C of sanctum) or the house off - switched off, **only a unit
-  the rule switched on to heat**. The unit holds its own target, so no reading of the room is needed; `inSchedule` of
-  heating-service is not read. Not known (heating-service not answering) does nothing, neither the heating nor its off.
-- **Keep below wins**: while it is on and the room is above its threshold, the heating asks for nothing; the heating
-  never goes above the threshold minus the hysteresis (24 °C for sanctum), so it never heats the room into the cooling.
-- A unit the window stopped and set back stays the rule's: its schedule ending or the room cooled switches it off.
+- **Heat by schedule is a frost protection** (HAS-387; the comfort is switched on by hand): a thermostat on the reading
+  of the room against what the schedule of the room asks for now (`heaters[].scheduledTemperature` of
+  `GET /home/heating/rooms`, read with the windows; heating-service >= 1.21.0 keeps it for the radiator of sanctum it no
+  longer drives - 9 °C all day). The room more than 1 °C below the schedule - the unit is switched on in heat
+  (`source=rule`) **with the target it has** (the owner keeps 21 °C), unless it heats already, whoever switched it on;
+  the room at the schedule - switched off, **only a unit the rule switched on to heat** and not before it ran
+  `aircon.rule.heat-min-run` (30 min); no schedule covering the room - its heating off the same way. A unit the rule
+  switched off rests `aircon.rule.heat-min-off` (10 min) before it heats again. The house switch of heating-service is
+  not read: the protection holds while the heating of the house is off. No reading of the room, or heating-service not
+  answering, does nothing.
+- **Keep below wins**: while it is on and the room is above its threshold, the heating asks for nothing.
+- A unit the window stopped and set back stays the rule's: the room warm again switches it off.
 - Every command is logged in `aircon_rule_run`.

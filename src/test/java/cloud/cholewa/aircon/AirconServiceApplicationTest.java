@@ -3,6 +3,7 @@ package cloud.cholewa.aircon;
 import cloud.cholewa.aircon.command.CommandProperties;
 import cloud.cholewa.aircon.driver.GreeProperties;
 import cloud.cholewa.aircon.monitor.MonitorProperties;
+import cloud.cholewa.aircon.rule.RuleProperties;
 import cloud.cholewa.commons.notification.NotificationPublisher;
 import cloud.cholewa.commons.database.DatabaseProperties;
 import cloud.cholewa.shelly.http.ShellyGen1Client;
@@ -33,6 +34,8 @@ class AirconServiceApplicationTest {
     private CommandProperties commandProperties;
     @Autowired
     private MonitorProperties monitorProperties;
+    @Autowired
+    private RuleProperties ruleProperties;
 
     @Test
     void contextLoads() {
@@ -93,6 +96,14 @@ class AirconServiceApplicationTest {
     @Test
     void should_confirm_the_commands_as_agreed() {
         assertThat(commandProperties).isEqualTo(new CommandProperties(Duration.ofSeconds(2), Duration.ofSeconds(60)));
+    }
+
+    //HAS-386 / HAS-387: a person holds the rule off for 30 min, a reading decides for 3 h; the frost protection runs a
+    //heating 30 min at least and rests the unit 10 min (owner 2026-11-08)
+    @Test
+    void should_run_the_rules_as_agreed() {
+        assertThat(ruleProperties).isEqualTo(new RuleProperties(Duration.ofMinutes(30), Duration.ofHours(3),
+            Duration.ofMinutes(30), Duration.ofMinutes(10)));
     }
 
     //the plugs that feed the units (their power card, later in the epic) are read through the clients of shelly-client

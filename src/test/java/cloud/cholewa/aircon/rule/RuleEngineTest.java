@@ -15,8 +15,6 @@ import cloud.cholewa.aircon.state.UnitState;
 import cloud.cholewa.aircon.unit.FanSpeed;
 import cloud.cholewa.aircon.unit.Mode;
 import cloud.cholewa.aircon.unit.UnitStatus;
-import cloud.cholewa.aircon.window.HeatingCallException;
-import cloud.cholewa.aircon.window.HeatingClient;
 import cloud.cholewa.aircon.window.HeatingRoom;
 import cloud.cholewa.aircon.window.RoomSchedules;
 import cloud.cholewa.aircon.window.RoomTemperatures;
@@ -38,6 +36,7 @@ import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -67,13 +66,13 @@ class RuleEngineTest {
     private final StateStore store = mock(StateStore.class);
     private final RoomTemperatures temperatures = mock(RoomTemperatures.class);
     private final RoomSchedules schedules = mock(RoomSchedules.class);
-    private final HeatingClient heatingClient = mock(HeatingClient.class);
     private final WindowStates windows = mock(WindowStates.class);
     private final AutomationState automation = mock(AutomationState.class);
     private final RuleCommands commands = mock(RuleCommands.class);
     private final CommandOutcomes outcomes = new CommandOutcomes();
-    private final RuleEngine engine = new RuleEngine(repository, registry, store, temperatures, schedules, heatingClient,
-        windows, automation, commands, outcomes, new RuleProperties(Duration.ofMinutes(30), Duration.ofHours(3)), CLOCK);
+    private final RuleEngine engine = new RuleEngine(repository, registry, store, temperatures, schedules, windows,
+        automation, commands, outcomes, new RuleProperties(Duration.ofMinutes(30), Duration.ofHours(3),
+            Duration.ofMinutes(30), Duration.ofMinutes(10)), CLOCK);
 
     @BeforeEach
     void setUp() {
@@ -164,38 +163,39 @@ class RuleEngineTest {
         verify(commands, times(4)).send(144, COOL, ChangeSource.RULE, null);
     }
 
-    //HAS-387: the schedule of sanctum asks for 21 C while the house is on - heat at 21 C
+    //HAS-387: the frost protection - sanctum at 7.5 C, its schedule asks for 9 C: heating with the target the unit has
     @Test
-    void should_heat_sanctum_by_its_schedule() {
+    void should_heat_sanctum_below_its_schedule() {
         heatBySchedule();
-        when(heatingClient.getHouseSwitch()).thenReturn(Mono.just(true));
-        when(schedules.of("sanctum")).thenReturn(Optional.of(new RoomSchedules.Schedule(21.0)));
+        room(7.5, NOW.minusMinutes(20));
+        when(schedules.of("sanctum")).thenReturn(Optional.of(new RoomSchedules.Schedule(9.0)));
 
         engine.runOnce().as(StepVerifier::create).verifyComplete();
 
-        verify(commands).send(144, RuleEngine.heat(21), ChangeSource.RULE, null);
+        verify(commands).send(144, RuleEngine.heat(), ChangeSource.RULE, null);
+        assertThat(RuleEngine.heat().targetTemperature()).as("the target left").isNull();
     }
 
     @Test
-    void should_switch_off_its_heating_when_the_house_is_switched_off() {
+    void should_switch_off_its_heating_once_the_schedule_is_reached() {
         heatBySchedule();
-        when(heatingClient.getHouseSwitch()).thenReturn(Mono.just(false));
-        when(schedules.of("sanctum")).thenReturn(Optional.of(new RoomSchedules.Schedule(21.0)));
+        room(9.0, NOW.minusMinutes(1));
+        when(schedules.of("sanctum")).thenReturn(Optional.of(new RoomSchedules.Schedule(9.0)));
         when(store.of(144)).thenReturn(Optional.of(new UnitState(new UnitStatus(true, Mode.HEAT, 21, 15, FanSpeed.AUTO,
             0, 0, false, false, false, true, null), true, NOW, null)));
-        when(store.lastChange(144)).thenReturn(Optional.of(new StateStore.Change(ChangeSource.RULE, NOW.minusHours(1))));
+        when(store.lastChange(144)).thenReturn(Optional.of(new StateStore.Change(ChangeSource.RULE, NOW.minusMinutes(31))));
 
         engine.runOnce().as(StepVerifier::create).verifyComplete();
 
         verify(commands).send(144, RuleEngine.off(), ChangeSource.RULE, null);
     }
 
-    //the house switch not read: neither heating nor its off, and the rest of the rule goes on
+    //the schedule of the room not known (heating-service not read) is not "no schedule"; the rest of the rule goes on
     @Test
-    void should_not_heat_while_the_house_switch_is_not_known() {
+    void should_not_heat_while_the_schedule_is_not_known() {
         heatBySchedule();
-        when(heatingClient.getHouseSwitch()).thenReturn(Mono.error(new HeatingCallException("heating-service answered 503")));
-        when(schedules.of("sanctum")).thenReturn(Optional.of(new RoomSchedules.Schedule(21.0)));
+        room(5.0, NOW.minusMinutes(5));
+        when(schedules.of("sanctum")).thenReturn(Optional.empty());
 
         engine.runOnce().as(StepVerifier::create).verifyComplete();
         verify(commands, never()).send(anyLong(), any(), any(), any());
@@ -203,26 +203,6 @@ class RuleEngineTest {
         room(27.0, NOW.minusMinutes(5));
         engine.runOnce().as(StepVerifier::create).verifyComplete();
         verify(commands).send(144, COOL, ChangeSource.RULE, null);
-    }
-
-    //the schedule of the room not known (heating-service not read) is not "no schedule"
-    @Test
-    void should_not_heat_while_the_schedule_is_not_known() {
-        heatBySchedule();
-        when(heatingClient.getHouseSwitch()).thenReturn(Mono.just(true));
-        when(schedules.of("sanctum")).thenReturn(Optional.empty());
-
-        engine.runOnce().as(StepVerifier::create).verifyComplete();
-
-        verify(commands, never()).send(anyLong(), any(), any(), any());
-    }
-
-    //no rule heats by schedule: the house switch is never read
-    @Test
-    void should_not_read_the_house_switch_without_a_rule_heating_by_schedule() {
-        engine.runOnce().as(StepVerifier::create).verifyComplete();
-
-        verify(heatingClient, never()).getHouseSwitch();
     }
 
     @Test
