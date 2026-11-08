@@ -5,6 +5,10 @@ import cloud.cholewa.aircon.api.model.AirconRule;
 import cloud.cholewa.aircon.api.model.RuleBody;
 import cloud.cholewa.aircon.rule.RuleService;
 import cloud.cholewa.aircon.power.PowerService;
+import cloud.cholewa.aircon.api.model.FilterReply;
+import cloud.cholewa.aircon.filter.FilterService;
+import cloud.cholewa.aircon.filter.UnitRun;
+import cloud.cholewa.aircon.state.ChangeSource;
 import cloud.cholewa.aircon.api.model.PlugReply;
 import cloud.cholewa.aircon.api.model.PowerCycleReply;
 import cloud.cholewa.aircon.power.CycleResult;
@@ -47,7 +51,8 @@ class AirconControllerTest {
 
     private static final AirconReply OFFICE = new AirconReply(140, "Air conditioner", RoomName.OFFICE, true, Mode.COOL,
         22, 24, FanSpeed.MEDIUM_LOW, 0, 2, false, false, false, true, true, null, LocalDateTime.of(2026, 11, 7, 13, 15, 45), true,
-        null, new WindowReply("open", LocalDateTime.of(2026, 11, 7, 13, 10), true, LocalDateTime.of(2026, 11, 7, 14, 13)), true);
+        null, new WindowReply("open", LocalDateTime.of(2026, 11, 7, 13, 10), true, LocalDateTime.of(2026, 11, 7, 14, 13)), true,
+        new FilterReply(203.4, LocalDateTime.of(2026, 11, 1, 10, 0), true));
 
     @Autowired
     private WebTestClient webTestClient;
@@ -66,6 +71,9 @@ class AirconControllerTest {
 
     @MockitoBean
     private PowerService powerService;
+
+    @MockitoBean
+    private FilterService filterService;
 
     private static final AirconRule SANCTUM_RULE = new AirconRule(144, new AirconRule.KeepBelow(true,
         new BigDecimal("25.0"), new BigDecimal("1.0"), 22), new AirconRule.HeatBySchedule(false),
@@ -132,7 +140,7 @@ class AirconControllerTest {
     void should_answer_every_unit_with_what_is_known_of_it() {
         when(unitService.units()).thenReturn(Mono.just(List.of(OFFICE,
             new AirconReply(143, "Air conditioner", RoomName.HALL_UP, null, null, null, null, null, null, null, null,
-                null, null, null, null, null, null, null, null, null, null))));
+                null, null, null, null, null, null, null, null, null, null, null))));
 
         webTestClient.get().uri("")
             .exchange()
@@ -144,7 +152,8 @@ class AirconControllerTest {
                    "swingHorizontal": 2, "quiet": false, "turbo": false, "sleep": false, "display": true,
                    "reachable": true, "updatedAt": "2026-11-07T13:15:45", "lastCommandConfirmed": true,
                    "window": {"state": "open", "openSince": "2026-11-07T13:10:00", "hold": true,
-                              "restoreUntil": "2026-11-07T14:13:00"}, "compressorRunning": true},
+                              "restoreUntil": "2026-11-07T14:13:00"}, "compressorRunning": true,
+                   "filter": {"hoursSince": 203.4, "cleanedAt": "2026-11-01T10:00:00", "due": true}},
                   {"id": 143, "name": "Air conditioner", "room": "hall up"}
                 ]""", JsonCompareMode.STRICT);
     }
@@ -333,5 +342,46 @@ class AirconControllerTest {
         webTestClient.post().uri("/power-cycle?member=" + "a".repeat(51))
             .exchange()
             .expectStatus().isBadRequest();
+    }
+
+    //HAS-391: a cleaning recorded, 204; a unit not registered 404
+    @Test
+    void should_record_a_cleaning_of_a_filter() {
+        when(filterService.cleaned(140)).thenReturn(Mono.empty());
+        webTestClient.post().uri("/140/filter-cleaned").exchange().expectStatus().isNoContent();
+
+        when(filterService.cleaned(999)).thenReturn(Mono.error(AirconException.airconNotFound(999)));
+        webTestClient.post().uri("/999/filter-cleaned")
+            .exchange()
+            .expectStatus().isNotFound()
+            .expectBody().jsonPath("$.errors[0].code").isEqualTo("NOT_FOUND_AIRCON");
+    }
+
+    //the changes of a unit in the words of the reads, the source in the words of the history
+    @Test
+    void should_answer_the_runs_of_a_unit() {
+        final LocalDateTime from = LocalDateTime.of(2026, 11, 7, 0, 0);
+        when(filterService.runs(140, from, from.plusDays(1))).thenReturn(Mono.just(List.of(
+            new UnitRun(from.plusHours(8), true, Mode.HEAT, 21, FanSpeed.AUTO, ChangeSource.RULE),
+            new UnitRun(from.plusHours(9), false, null, null, null, ChangeSource.EMPTY_HOUSE))));
+
+        webTestClient.get().uri("/140/runs?from=2026-11-07T00:00:00&to=2026-11-08T00:00:00")
+            .exchange()
+            .expectStatus().isOk()
+            .expectBody().json("""
+                [{"at": "2026-11-07T08:00:00", "power": true, "mode": "heat", "targetTemperature": 21, "fanSpeed": "auto",
+                  "source": "rule"},
+                 {"at": "2026-11-07T09:00:00", "power": false, "source": "empty-house"}]""", JsonCompareMode.STRICT);
+    }
+
+    @Test
+    void should_refuse_the_runs_of_a_range_too_long() {
+        when(filterService.runs(eq(140L), any(), any()))
+            .thenReturn(Mono.error(AirconException.invalidRange("The range must not be longer than 31 days")));
+
+        webTestClient.get().uri("/140/runs?from=2026-09-01T00:00:00&to=2026-11-08T00:00:00")
+            .exchange()
+            .expectStatus().isBadRequest()
+            .expectBody().jsonPath("$.errors[0].code").isEqualTo("INVALID_RANGE");
     }
 }
