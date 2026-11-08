@@ -5,7 +5,8 @@ state, commands and the rules of the house (open windows, 22 °C minimum in cool
 25 °C, the empty house, a lost grid, run hours). Scaffolded by HAS-380 with the units of the
 registry and the driver; the state of every unit since HAS-381; the commands and the guard of 22 °C since HAS-382;
 the availability monitor since HAS-383; the open windows since HAS-384; the empty house and a lost grid since HAS-385; the rule per unit since HAS-386; the frost
-protection by schedule since HAS-387; the features come with HAS-389 onwards.
+protection by schedule since HAS-387; the draw of the plugs and the power cycle since HAS-390; the run hours come with
+HAS-391.
 
 Part of the smart-home-automation-system organization — org-wide conventions, the
 repository map and working rules come from the workspace-level context
@@ -22,19 +23,21 @@ IntelliJ.
   every 5 min, k8s DNS), `heating-service` for the windows of the rooms (`GET /home/heating/rooms` every minute,
   >= 1.20.0, k8s DNS - HAS-384; the temperatures since HAS-386, what the schedules ask for since HAS-387 - >= 1.21.0 for
   sanctum), `presence-service` (`GET /home/presence/residents/presence`) and `energy-service`
-  (`GET /home/energy/status`, >= 0.4.0) every minute for the empty house and the grid (HAS-385), and the units themselves
-  (UDP 7000).
+  (`GET /home/energy/status`, >= 0.4.0) every minute for the empty house and the grid (HAS-385), the units themselves
+  (UDP 7000) and the two plugs that feed them over HTTP (shelly-client, every 30 s - HAS-390).
 - Uses libraries: `cholewa-commons` 1.13.0 (the pooled `ConnectionFactory`, the required
   properties, the scheduler pool and `ScheduledPass`, the error contract), `smart-home-sdk` 1.18.0
-  (`DeviceKind.AIR_CONDITIONER`, `GreeBinding`), `shelly-client` 2.6.0 **with its beans on**
-  (for the plugs that feed the units, HAS-390; pinned by `AirconServiceApplicationTest`).
+  (`DeviceKind.AIR_CONDITIONER`, `GreeBinding`), `shelly-client` 2.7.0 **with its beans on**
+  (`Switch.GetStatus` / `Switch.Set` of the indoor plug, `PM1.GetStatus` of the meter of sanctum - HAS-390; pinned by
+  `AirconServiceApplicationTest`).
 - Database: own database `home-automation-aircon`, pool 2 - with it 22 of the 47 connections of the
   managed database are allotted to this project (25 with ristretto).
 
 ## Build & run
 
 - Build + tests: `mvn verify` - **needs a running Docker** since HAS-381 (`AirconStateRepositoryTest`,
-  `WindowHoldRepositoryTest`, `RuleRunRepositoryTest`, `RuleRepositoryTest` - Testcontainers PostgreSQL).
+  `WindowHoldRepositoryTest`, `RuleRunRepositoryTest`, `RuleRepositoryTest`, `PowerRepositoryTest` - Testcontainers
+  PostgreSQL).
 - Local run: `home,local` Spring profiles, port `6015` (Actuator `8015`); in-cluster port `6200`,
   Actuator `8200`. Needs `database-password` and the other `database-*` values. **The real values
   are the production database** - a migration is rehearsed on a throwaway PostgreSQL, never by a
@@ -194,6 +197,32 @@ firmware `362001065279+U-WB05RT13V1.45.bin`, `ver V3.4.M`, mid 10001:
   after `MAX_NOT_TAKEN` (3) commands in a row the unit did not take (`CommandOutcomes.lastCommandConfirmed`) the rule
   pauses for it with one WARN, until it asks for nothing or a command is taken (in memory). A target the rule lowers on a
   unit a person switched on makes the unit the rule's - it may switch it off later (keeping the room below, accepted).
+- **The plugs that feed the units** (HAS-390, `power/`): not devices of the registry - `aircon.plugs.indoor` (the Plus
+  Plug S of office, livia, tobi and bedroom, `switch` 0, the emergency switch of the owner) and `aircon.plugs.sanctum`
+  (the PM Mini Gen3, `pm1` 0 - a meter, never switched), their addresses from the manifest (`plug-indoor-address`,
+  `plug-sanctum-address`, required). `PowerWatch` reads both every 30 s (15 s in, bounded 25 s, one after the other):
+  the reading in memory (`PlugStore` - a reading older than 2 min is not the plug now) and a row of
+  `aircon_power_sample` (`V8`, every sample, 30 days); a plug that does not answer is one WARN and one INFO at its return,
+  no alert (the units are watched by the monitor). Every hour at minute 15 it closes the 30 days before today into
+  `aircon_power_day` (`ON CONFLICT DO NOTHING` - closed once, from 00:15; a day without a sample is not closed, never
+  0 kWh) and deletes what is older than kept (samples 30 days, days 730, cycles 365). **The energy is the sum of the rises of
+  `aenergy.total`** between the samples, the one before the range included, a fall (a reset) never counted (`ENERGY` of
+  `PowerRepository`, PostgreSQL's `LAG`); fewer than two samples is not known. `compressorRunning` is the plug above
+  `standby-watts` (20 W) - in `GET /power` and in the reads of every unit the plug feeds (the indoor plug feeds four, so
+  `true` says one of them runs). `GET /power/samples` answers buckets of avg / min / max power by `HistoryRange` -
+  **the fifth copy** (weather, water, heating, energy), kept by the owner's choice (2026-11-08), not a review finding;
+  `INVALID_RANGE`, `NOT_FOUND_PLUG`.
+- **The power cycle** (HAS-390, `PowerCycle`): by hand only - never after an alert (owner). Refused (`409
+  AIRCON_RUNNING`) while an indoor unit is known on (answering and on - a unit not answering, the usual reason for a cycle,
+  never blocks it), while the indoor plug draws above the standby, or while its draw is not known; `409
+  POWER_CYCLE_IN_PROGRESS` while one runs (in memory). A row of `aircon_power_cycle` (`running`, who asked), `Switch.Set`
+  off, `202`; then, outside the request and every bounded pass, `cycle-off-for` (PT15S) and on again - each attempt
+  deferred, up to three 5 s apart, read back by `Switch.GetStatus` - `done`, or `failed` with an alert on the technical
+  channel (the four indoor units are without power). An off not taken may have been carried out: the plug is switched on
+  before `502 DEVICE_FAILED`. A row still `running` at a start is a cycle a restart cut off: the first pass of the plugs
+  switches the plug on and fails the row. The table is separate from `aircon_rule_run` (the task named that one): a
+  cycle is of a plug, not of a unit, and keeps who asked. **What the units do after a cycle (resume or stay off) is checked
+  on the first real cycle the owner runs from Bruno** and written here.
 - **Tests use `mockwebserver3`** for the client of database-service, never the legacy
   `mockwebserver` (JUnit 4).
 - **Surefire activates the `test` profile for every class**; the `includes` match only

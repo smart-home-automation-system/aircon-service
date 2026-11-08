@@ -10,6 +10,12 @@ import cloud.cholewa.aircon.api.model.CommandRequest;
 import cloud.cholewa.aircon.api.model.RoomCommandReply;
 import cloud.cholewa.aircon.command.CommandService;
 import cloud.cholewa.aircon.unit.UnitService;
+import cloud.cholewa.aircon.api.model.PlugReply;
+import cloud.cholewa.aircon.api.model.PowerCycleReply;
+import cloud.cholewa.aircon.power.PowerBucket;
+import cloud.cholewa.aircon.power.PowerService;
+import jakarta.validation.constraints.Size;
+import org.springframework.format.annotation.DateTimeFormat;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -23,6 +29,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 //The API of the air conditioners of the house, under the base path /home/aircon; routed by the gateway by path, every
@@ -35,6 +42,35 @@ public class AirconController {
     private final CommandService commandService;
     private final AutomationService automationService;
     private final RuleService ruleService;
+    private final PowerService powerService;
+
+    //the plugs that feed the units: the draw now and the energy (HAS-390)
+    @GetMapping("power")
+    Mono<List<PlugReply>> power() {
+        return powerService.plugs();
+    }
+
+    //the power of a plug in buckets of 5 min, 30 min or 2 h, at most 31 days - INVALID_RANGE, NOT_FOUND_PLUG
+    @GetMapping("power/samples")
+    Mono<List<PowerBucket>> powerSamples(@RequestParam final String plug,
+                                         @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) final LocalDateTime from,
+                                         @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) final LocalDateTime to) {
+        return powerService.samples(plug, from, to);
+    }
+
+    //whether the indoor plug may be power cycled now, and the last cycle
+    @GetMapping("power-cycle")
+    Mono<PowerCycleReply> powerCycle() {
+        return powerService.powerCycle();
+    }
+
+    //the power cycle of the indoor plug, by hand only: 202 once the plug is off, on again after cycle-off-for -
+    //AIRCON_RUNNING, POWER_CYCLE_IN_PROGRESS, DEVICE_FAILED; member - who asks, stored with the cycle
+    @PostMapping("power-cycle")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    Mono<Void> startPowerCycle(@RequestParam(required = false) @Size(max = 50) final String member) {
+        return powerService.startPowerCycle(member);
+    }
 
     //the rule of every unit that has one (HAS-386)
     @GetMapping("rules")

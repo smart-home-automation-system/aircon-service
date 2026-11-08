@@ -3,6 +3,7 @@ package cloud.cholewa.aircon.unit;
 import cloud.cholewa.aircon.api.model.AirconReply;
 import cloud.cholewa.aircon.api.model.WindowReply;
 import cloud.cholewa.aircon.command.CommandOutcomes;
+import cloud.cholewa.aircon.power.PowerService;
 import cloud.cholewa.aircon.error.AirconError;
 import cloud.cholewa.aircon.error.AirconException;
 import cloud.cholewa.aircon.registry.AirConditioner;
@@ -12,6 +13,7 @@ import cloud.cholewa.aircon.state.UnitState;
 import cloud.cholewa.aircon.window.RoomWindow;
 import cloud.cholewa.aircon.window.WindowStates;
 import cloud.cholewa.home.model.RoomName;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import reactor.test.StepVerifier;
 
@@ -33,13 +35,21 @@ class UnitServiceTest {
     private static final UnitStatus COOLING = new UnitStatus(true, Mode.COOL, 22, 24, FanSpeed.AUTO, 0, 0, false, false,
         false, true, "hid");
     private static final AirconReply OFFICE_COOLING = new AirconReply(140, "Air conditioner", RoomName.OFFICE, true,
-        Mode.COOL, 22, 24, FanSpeed.AUTO, 0, 0, false, false, false, true, true, null, AT, null, null, null);
+        Mode.COOL, 22, 24, FanSpeed.AUTO, 0, 0, false, false, false, true, true, null, AT, null, null, null, true);
 
     private final UnitRegistry registry = mock(UnitRegistry.class);
     private final StateStore store = mock(StateStore.class);
     private final CommandOutcomes outcomes = new CommandOutcomes();
     private final WindowStates windows = mock(WindowStates.class);
-    private final UnitService service = new UnitService(registry, store, outcomes, windows);
+    private final PowerService power = mock(PowerService.class);
+    private final UnitService service = new UnitService(registry, store, outcomes, windows, power);
+
+    //the plug of the office feeds a running compressor (HAS-390), the one of the bedroom is not known
+    @BeforeEach
+    void setUp() {
+        when(power.compressorRunning("office")).thenReturn(true);
+        when(power.compressorRunning("bedroom")).thenReturn(null);
+    }
 
     @Test
     void should_refuse_while_the_registry_is_not_known() {
@@ -60,7 +70,7 @@ class UnitServiceTest {
 
         service.units().as(StepVerifier::create)
             .expectNext(List.of(OFFICE_COOLING, new AirconReply(143, "Air conditioner", RoomName.BEDROOM, null, null,
-                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null)))
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null)))
             .verifyComplete();
     }
 

@@ -7,12 +7,13 @@ import java.util.Arrays;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-//the names are the codes of the answers - wire contract once the dashboard branches on them (HAS-380, HAS-381, HAS-382)
+//the names are the codes of the answers - wire contract once the dashboard branches on them (HAS-380, HAS-381, HAS-382, HAS-390)
 class AirconErrorTest {
 
     @Test
     void should_keep_the_codes_of_the_refused_requests() {
         assertThat(Arrays.stream(AirconError.values()).map(ErrorId::codeOf)).containsExactly("REGISTRY_UNAVAILABLE", "NOT_FOUND_AIRCON",
-            "NOT_FOUND_ROOM", "INVALID_COMMAND", "DEVICE_FAILED", "INVALID_RULE", "NOT_FOUND_RULE");
+            "NOT_FOUND_ROOM", "INVALID_COMMAND", "DEVICE_FAILED", "INVALID_RULE", "NOT_FOUND_RULE", "INVALID_RANGE", "NOT_FOUND_PLUG",
+            "AIRCON_RUNNING", "POWER_CYCLE_IN_PROGRESS");
     }
 }

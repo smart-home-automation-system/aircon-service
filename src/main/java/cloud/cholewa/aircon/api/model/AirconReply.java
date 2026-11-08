@@ -13,7 +13,9 @@ import java.time.LocalDateTime;
 //lastCommandConfirmed - whether the read after the last command showed it (left out while it is being confirmed, and
 //before any), minimumRestoredAt - when the guard last raised a cooling target to 22 C. Since HAS-383: unreachableSince -
 //since when the unit does not answer (with reachable false; counted anew after a start). Since HAS-384: window - the
-//window of its room and, while it holds the unit stopped, until when the unit is set back (left out when neither is known)
+//window of its room and, while it holds the unit stopped, until when the unit is set back (left out when neither is known).
+//Since HAS-390: compressorRunning - whether the plug that feeds the unit draws above the standby (left out while its draw
+//is not known); the indoor plug feeds four units, so true there says one of them runs
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record AirconReply(
     long id,
@@ -35,6 +37,7 @@ public record AirconReply(
     LocalDateTime updatedAt,
     Boolean lastCommandConfirmed,
     LocalDateTime minimumRestoredAt,
-    WindowReply window
+    WindowReply window,
+    Boolean compressorRunning
 ) {
 }

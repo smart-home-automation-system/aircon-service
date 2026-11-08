@@ -3,6 +3,7 @@ package cloud.cholewa.aircon;
 import cloud.cholewa.aircon.command.CommandProperties;
 import cloud.cholewa.aircon.driver.GreeProperties;
 import cloud.cholewa.aircon.monitor.MonitorProperties;
+import cloud.cholewa.aircon.power.PlugProperties;
 import cloud.cholewa.aircon.rule.RuleProperties;
 import cloud.cholewa.commons.notification.NotificationPublisher;
 import cloud.cholewa.commons.database.DatabaseProperties;
@@ -17,6 +18,7 @@ import org.springframework.scheduling.annotation.ScheduledAnnotationBeanPostProc
 import org.springframework.test.context.ActiveProfiles;
 
 import java.time.Duration;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -36,6 +38,8 @@ class AirconServiceApplicationTest {
     private MonitorProperties monitorProperties;
     @Autowired
     private RuleProperties ruleProperties;
+    @Autowired
+    private PlugProperties plugProperties;
 
     @Test
     void contextLoads() {
@@ -61,8 +65,8 @@ class AirconServiceApplicationTest {
             .isEqualTo(10);
     }
 
-    //the password of the database has no default: the start is refused without it (cholewa.required-properties); the
-    //service has no other secret yet
+    //the password of the database and of the broker and the addresses of the plugs (HAS-390) have no default: the start is
+    //refused without them (cholewa.required-properties)
     @Test
     void should_require_the_password_of_the_database() {
         assertThat(applicationContext.getEnvironment().getProperty("cholewa.required-properties[0].property"))
@@ -73,7 +77,15 @@ class AirconServiceApplicationTest {
             .isEqualTo("spring.rabbitmq.password");
         assertThat(applicationContext.getEnvironment().getProperty("cholewa.required-properties[1].variable"))
             .isEqualTo("rabbitmq-password");
-        assertThat(applicationContext.getEnvironment().getProperty("cholewa.required-properties[2].property")).isNull();
+        assertThat(applicationContext.getEnvironment().getProperty("cholewa.required-properties[2].property"))
+            .isEqualTo("aircon.plugs.indoor.address");
+        assertThat(applicationContext.getEnvironment().getProperty("cholewa.required-properties[2].variable"))
+            .isEqualTo("plug-indoor-address");
+        assertThat(applicationContext.getEnvironment().getProperty("cholewa.required-properties[3].property"))
+            .isEqualTo("aircon.plugs.sanctum.address");
+        assertThat(applicationContext.getEnvironment().getProperty("cholewa.required-properties[3].variable"))
+            .isEqualTo("plug-sanctum-address");
+        assertThat(applicationContext.getEnvironment().getProperty("cholewa.required-properties[4].property")).isNull();
     }
 
     //the protocol of the probe of 2026-11-04: UDP 7000, 3 s for an answer, two more attempts, a new bind after three
@@ -104,6 +116,16 @@ class AirconServiceApplicationTest {
     void should_run_the_rules_as_agreed() {
         assertThat(ruleProperties).isEqualTo(new RuleProperties(Duration.ofMinutes(30), Duration.ofHours(3),
             Duration.ofMinutes(30), Duration.ofMinutes(10)));
+    }
+
+    //HAS-390: the plugs that feed the units - the indoor plug with its relay for the four indoor units, the meter of
+    //sanctum; above 20 W a compressor runs, a power cycle keeps the plug off 15 s (the addresses of the test profile)
+    @Test
+    void should_know_the_plugs_as_agreed() {
+        assertThat(plugProperties).isEqualTo(new PlugProperties(
+            new PlugProperties.Plug("localhost:1", PlugProperties.Meter.SWITCH, 0, List.of("office", "livia", "tobi", "bedroom")),
+            new PlugProperties.Plug("localhost:1", PlugProperties.Meter.PM1, 0, List.of("sanctum")),
+            20, Duration.ofSeconds(15)));
     }
 
     //the plugs that feed the units (their power card, later in the epic) are read through the clients of shelly-client
