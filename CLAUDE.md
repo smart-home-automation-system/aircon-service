@@ -4,8 +4,8 @@ The air conditioners of the house (epic HAS-376): five Gree indoor units over th
 state, commands and the rules of the house (open windows, 22 °C minimum in cooling, sanctum below
 25 °C, the empty house, a lost grid, run hours). Scaffolded by HAS-380 with the units of the
 registry and the driver; the state of every unit since HAS-381; the commands and the guard of 22 °C since HAS-382;
-the availability monitor since HAS-383; the open windows since HAS-384; the empty house and a lost grid since HAS-385; the rule per unit since HAS-386; the heating by
-schedule since HAS-387; the features come with HAS-389 onwards.
+the availability monitor since HAS-383; the open windows since HAS-384; the empty house and a lost grid since HAS-385; the rule per unit since HAS-386; the frost
+protection by schedule since HAS-387; the features come with HAS-389 onwards.
 
 Part of the smart-home-automation-system organization — org-wide conventions, the
 repository map and working rules come from the workspace-level context
@@ -21,7 +21,7 @@ IntelliJ.
 - Calls: `database-service` for the registry (`GET /home/device/registry?kind=air conditioner&enabled=true`
   every 5 min, k8s DNS), `heating-service` for the windows of the rooms (`GET /home/heating/rooms` every minute,
   >= 1.20.0, k8s DNS - HAS-384; the temperatures since HAS-386, what the schedules ask for since HAS-387 - >= 1.21.0 for
-  sanctum) and its house switch (`GET /home/heating` every minute while a rule heats by schedule, HAS-387), `presence-service` (`GET /home/presence/residents/presence`) and `energy-service`
+  sanctum), `presence-service` (`GET /home/presence/residents/presence`) and `energy-service`
   (`GET /home/energy/status`, >= 0.4.0) every minute for the empty house and the grid (HAS-385), and the units themselves
   (UDP 7000).
 - Uses libraries: `cholewa-commons` 1.13.0 (the pooled `ConnectionFactory`, the required
@@ -181,14 +181,16 @@ firmware `362001065279+U-WB05RT13V1.45.bin`, `ver V3.4.M`, mid 10001:
   remote or the dashboard, nothing for a unit not answering or not read, no cooling while the grid is lost or the window
   of its room holds (the off still goes). **The last change of every unit is restored from `aircon_state_change` at a
   start** (`AirconStateRepository.lastChanges`), so the rule knows after a restart which unit it switched on - and the
-  window which unit a person changed. **Heat by schedule** (HAS-387): the house switch (`GET /home/heating`,
-  read once a pass only while a rule heats by schedule - `HeatingClient.getHouseSwitch`) and what the schedule of the room asks
-  for now (`RoomSchedules`, written by the window pass from `heaters[].scheduledTemperature` - the most any heater asks for;
-  a room of the read without a schedule is known as such, a failed read makes every room not known); heat at the schedule
-  rounded half up when it is 16 C or more (below - "do not heat", owner 2026-11-08: sanctum has 9 C all day), at most the
-  threshold of keep below minus its hysteresis while keep below is on; otherwise off, only a unit the rule switched on
-  **in heat** (keep below switches off only one **in cool**). Keep below wins while the room is above its threshold. Not known
-  never acts. A last change of `window` (the restore of a stop) leaves a unit the rule's, as `rule` does. Commands through `RuleCommands`;
+  window which unit a person changed. **Heat by schedule is a frost protection** (HAS-387, owner 2026-11-08: the
+  comfort is switched on by hand): what the schedule of the room asks for now (`RoomSchedules`, written by the window pass
+  from `heaters[].scheduledTemperature` - the most any heater asks for; a room of the read without a schedule is known as
+  such, a failed read makes every room not known) against the same reading of the room as keep below. The room below the
+  schedule by more than `FROST_BAND` (1 C) - power on in heat **without a target** (the unit keeps the 21 C of the owner),
+  unless the unit heats already, whoever switched it on; the room at the schedule, or no schedule - off, only a unit the
+  rule switched on **in heat** (keep below switches off only one **in cool**) and only after `heat-min-run` (PT30M) since
+  that change; a unit the rule switched off rests `heat-min-off` (PT10M). The house switch of heating-service is not read
+  (the first version of HAS-387, 0.8.0, read it and heated at the schedule from 16 C - replaced in 0.9.0). Keep below wins
+  while the room is above its threshold. Not known never acts. A last change of `window` (the restore of a stop) leaves a unit the rule's, as `rule` does. Commands through `RuleCommands`;
   after `MAX_NOT_TAKEN` (3) commands in a row the unit did not take (`CommandOutcomes.lastCommandConfirmed`) the rule
   pauses for it with one WARN, until it asks for nothing or a command is taken (in memory). A target the rule lowers on a
   unit a person switched on makes the unit the rule's - it may switch it off later (keeping the room below, accepted).
