@@ -43,6 +43,23 @@ public class AirconException extends RuntimeException {
         return new AirconException(HttpStatus.NOT_FOUND, AirconError.NOT_FOUND_RULE, "Air conditioner " + id + " has no rule");
     }
 
+    public static AirconException invalidRange(final String reason) {
+        return new AirconException(HttpStatus.BAD_REQUEST, AirconError.INVALID_RANGE, reason);
+    }
+
+    //the plug is never echoed: it is a text of the request
+    public static AirconException plugNotFound() {
+        return new AirconException(HttpStatus.NOT_FOUND, AirconError.NOT_FOUND_PLUG, "No plug is called so");
+    }
+
+    public static AirconException airconRunning(final String reason) {
+        return new AirconException(HttpStatus.CONFLICT, AirconError.AIRCON_RUNNING, reason);
+    }
+
+    public static AirconException powerCycleInProgress() {
+        return new AirconException(HttpStatus.CONFLICT, AirconError.POWER_CYCLE_IN_PROGRESS, "A power cycle is running");
+    }
+
     //the room is never echoed: it is a text of the request
     public static AirconException roomNotFound() {
         return new AirconException(HttpStatus.NOT_FOUND, AirconError.NOT_FOUND_ROOM,

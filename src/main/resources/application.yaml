@@ -99,6 +99,28 @@ aircon:
   command:
     confirm-after: PT2S
     expect-for: PT60S
+  # the plugs that feed the units (HAS-390) - not devices of the registry, their addresses come from the manifest: the
+  # Plus Plug S of the four indoor units (switch 0, the only one with a relay - power cycled by hand) and the PM Mini Gen3
+  # of sanctum (pm1 0, a meter). Above standby-watts a plug feeds a running compressor; a power cycle keeps the indoor
+  # plug off for cycle-off-for (a bare duration is seconds)
+  plugs:
+    indoor:
+      address: ${plug-indoor-address}
+      meter: switch
+      channel: 0
+      rooms:
+        - office
+        - livia
+        - tobi
+        - bedroom
+    sanctum:
+      address: ${plug-sanctum-address}
+      meter: pm1
+      channel: 0
+      rooms:
+        - sanctum
+    standby-watts: 20
+    cycle-off-for: PT15S
 
 cholewa:
   # refuses the start before the first bean when one of these has no value (cholewa-commons >= 1.9.0)
@@ -107,6 +129,10 @@ cholewa:
       variable: database-password
     - property: spring.rabbitmq.password
       variable: rabbitmq-password
+    - property: aircon.plugs.indoor.address
+      variable: plug-indoor-address
+    - property: aircon.plugs.sanctum.address
+      variable: plug-sanctum-address
   notification:
     enabled: true
     env: prod
@@ -200,6 +226,14 @@ cholewa:
 # the pool opens nothing eagerly, and Flyway is off: a context test never reaches a database
 database:
   password: test
+
+# the plugs at an address nothing listens on: a test never reads or switches the plugs of the house
+aircon:
+  plugs:
+    indoor:
+      address: localhost:1
+    sanctum:
+      address: localhost:1
 
 # second line of defence: SchedulingConfig schedules nothing under this profile, and should a test call the
 # registry all the same, it must not reach the one of the house

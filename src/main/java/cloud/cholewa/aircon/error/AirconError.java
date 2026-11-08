@@ -5,7 +5,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
-//The causes of a request the API refuses (HAS-380, HAS-381, HAS-382, HAS-386). Their names are the codes of the answer (ErrorId.codeOf) -
+//The causes of a request the API refuses (HAS-380, HAS-381, HAS-382, HAS-386, HAS-390). Their names are the codes of the answer (ErrorId.codeOf) -
 //wire contract for a caller that branches on them, the dashboard first of all, pinned by AirconErrorTest
 @Getter
 @RequiredArgsConstructor(access = AccessLevel.PRIVATE)
@@ -32,7 +32,20 @@ public enum AirconError implements ErrorId {
     INVALID_RULE("Invalid rule"),
 
     //the unit has no rule
-    NOT_FOUND_RULE("Rule not found");
+    NOT_FOUND_RULE("Rule not found"),
+
+    //a range of a history its rules refuse (HistoryRange: from before to, at most 31 days) - the details say which
+    INVALID_RANGE("Invalid range"),
+
+    //no plug that feeds the units is called so (indoor, sanctum)
+    NOT_FOUND_PLUG("Plug not found"),
+
+    //a power cycle refused: an indoor unit is on, the indoor plug draws above the standby, or its draw is not known -
+    //the details say which
+    AIRCON_RUNNING("Air conditioner running"),
+
+    //a power cycle is running already
+    POWER_CYCLE_IN_PROGRESS("Power cycle in progress");
 
     private final String description;
 }
