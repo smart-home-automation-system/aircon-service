@@ -95,36 +95,6 @@ class HeatingClientTest {
             .verifyComplete();
     }
 
-    //the switch of the heating of the house (HAS-387)
-    @Test
-    void should_read_the_house_switch() throws InterruptedException {
-        server.enqueue(json("{\"isHeatingEnabled\":true,\"updatedAt\":\"2026-10-31T11:22:22.131498\"}"));
-        server.enqueue(json("{\"isHeatingEnabled\":false}"));
-
-        client.getHouseSwitch().as(StepVerifier::create).expectNext(true).verifyComplete();
-        client.getHouseSwitch().as(StepVerifier::create).expectNext(false).verifyComplete();
-
-        final RecordedRequest request = server.takeRequest();
-        assertThat(request.getMethod()).isEqualTo("GET");
-        assertThat(request.getUrl().encodedPath()).isEqualTo("/home/heating");
-    }
-
-    //no switch in the answer is a failed call, never a house off; an error is a WARN
-    @Test
-    void should_fail_on_an_answer_without_the_switch() {
-        server.enqueue(json("{}"));
-        server.enqueue(new MockResponse.Builder().code(200).addHeader("Content-Type", "application/json").build());
-        server.enqueue(new MockResponse.Builder().code(503).addHeader("Content-Type", "application/json")
-            .body("{\"errors\":[{\"message\":\"Down\"}]}").build());
-
-        client.getHouseSwitch().as(StepVerifier::create).expectError(HeatingCallException.class).verify();
-        client.getHouseSwitch().as(StepVerifier::create).expectError(HeatingCallException.class).verify();
-        client.getHouseSwitch().as(StepVerifier::create)
-            .expectErrorSatisfies(failure -> assertThat(failure).hasMessage("heating-service answered 503"))
-            .verify();
-        assertThat(clientLog.list).singleElement().satisfies(line -> assertThat(line.getLevel()).isEqualTo(Level.WARN));
-    }
-
     //what heating-service said goes to the log, never further
     @Test
     void should_fail_on_an_error_of_heating_service() {

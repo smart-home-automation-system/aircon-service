@@ -22,7 +22,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class RuleEvaluatorTest {
 
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 7, 15, 15, 0);
-    private static final Duration HOLD = Duration.ofMinutes(30);
+    private static final RuleProperties TIMING = new RuleProperties(Duration.ofMinutes(30), Duration.ofHours(3),
+        Duration.ofMinutes(30), Duration.ofMinutes(10));
     private static final AirconRule SANCTUM = rule(true);
 
     @Test
@@ -79,10 +80,10 @@ class RuleEvaluatorTest {
     @Test
     void should_never_decide_without_a_reading_or_a_unit_answering() {
         assertThat(decide(off(), null, null, false)).isEqualTo(Action.NONE);
-        assertThat(RuleEvaluator.decide(SANCTUM, null, 27.0, null, null, false, NOW, HOLD)).isEqualTo(Action.NONE);
+        assertThat(RuleEvaluator.decide(SANCTUM, null, 27.0, null, null, false, NOW, TIMING)).isEqualTo(Action.NONE);
         assertThat(RuleEvaluator.decide(SANCTUM, new UnitState(COOLING_OFF, false, NOW, NOW), 27.0, null, null, false, NOW,
-            HOLD)).isEqualTo(Action.NONE);
-        assertThat(RuleEvaluator.decide(SANCTUM, new UnitState(null, false, null, NOW), 27.0, null, null, false, NOW, HOLD))
+            TIMING)).isEqualTo(Action.NONE);
+        assertThat(RuleEvaluator.decide(SANCTUM, new UnitState(null, false, null, NOW), 27.0, null, null, false, NOW, TIMING))
             .isEqualTo(Action.NONE);
     }
 
@@ -95,7 +96,7 @@ class RuleEvaluatorTest {
     @Test
     void should_do_nothing_for_a_rule_that_is_off() {
         assertThat(RuleEvaluator.decide(rule(false), new UnitState(COOLING_OFF, true, NOW, null), 27.0, null, null, false,
-            NOW, HOLD)).isEqualTo(Action.NONE);
+            NOW, TIMING)).isEqualTo(Action.NONE);
     }
 
     //keep below switches off only a unit it switched on to cool - never the heating of the schedule (HAS-387)
@@ -104,119 +105,121 @@ class RuleEvaluatorTest {
         assertThat(decide(on(Mode.HEAT), 20.0, ruleChange(), false)).isEqualTo(Action.NONE);
     }
 
-    //HAS-387: the schedule asks for 21 C while the house is on - heat at 21 C, no reading of the room needed
+    //HAS-387, the frost protection: sanctum more than a degree below the 9 C of its schedule - heating, no target sent
     @Test
-    void should_heat_at_what_the_schedule_asks_for() {
-        assertThat(heat(off(), null, HOUSE_ON_21, null, false)).isEqualTo(Action.HEAT);
-        assertThat(heat(on(Mode.COOL), 22.0, HOUSE_ON_21, null, false)).as("cooling below the threshold")
+    void should_heat_a_room_more_than_a_degree_below_its_schedule() {
+        assertThat(heat(off(), 7.9, NINE, null, false)).isEqualTo(Action.HEAT);
+        assertThat(heat(off(), 8.0, NINE, null, false)).as("at the edge").isEqualTo(Action.NONE);
+        assertThat(heat(on(Mode.COOL), 7.0, NINE, null, false)).as("cooling").isEqualTo(Action.HEAT);
+    }
+
+    //a unit heating already - whoever switched it on, at whatever target - is left alone
+    @Test
+    void should_leave_a_unit_heating_already() {
+        assertThat(heat(heating(21), 5.0, NINE, null, false)).isEqualTo(Action.NONE);
+        assertThat(heat(heating(16), 5.0, NINE, ruleChange(), false)).isEqualTo(Action.NONE);
+    }
+
+    //the schedule reached: off the heating the rule switched on - not before it ran 30 minutes
+    @Test
+    void should_switch_off_its_heating_at_the_schedule_after_thirty_minutes() {
+        assertThat(heat(heating(21), 9.0, NINE, changeAgo(ChangeSource.RULE, 31), false)).isEqualTo(Action.STOP_HEATING);
+        assertThat(heat(heating(21), 12.0, NINE, changeAgo(ChangeSource.RULE, 30), false)).as("30 min exactly")
+            .isEqualTo(Action.STOP_HEATING);
+        assertThat(heat(heating(21), 12.0, NINE, changeAgo(ChangeSource.RULE, 29), false)).as("still the minimum run")
+            .isEqualTo(Action.NONE);
+        assertThat(heat(heating(21), 8.9, NINE, changeAgo(ChangeSource.RULE, 60), false)).as("below the schedule")
+            .isEqualTo(Action.NONE);
+    }
+
+    @Test
+    void should_switch_off_its_heating_when_no_schedule_covers_the_room() {
+        assertThat(heat(heating(21), 5.0, NO_SCHEDULE, ruleChange(), false)).isEqualTo(Action.STOP_HEATING);
+        assertThat(heat(heating(21), null, NO_SCHEDULE, ruleChange(), false)).as("no reading needed")
+            .isEqualTo(Action.STOP_HEATING);
+        assertThat(heat(heating(21), 5.0, NO_SCHEDULE, changeAgo(ChangeSource.RULE, 10), false)).as("the minimum run")
+            .isEqualTo(Action.NONE);
+        assertThat(heat(off(), 5.0, NO_SCHEDULE, null, false)).as("nothing to heat by").isEqualTo(Action.NONE);
+    }
+
+    //a unit the rule switched off rests 10 minutes before the rule heats it again
+    @Test
+    void should_rest_a_unit_it_switched_off_for_ten_minutes() {
+        assertThat(heat(off(), 7.0, NINE, changeAgo(ChangeSource.RULE, 9), false)).isEqualTo(Action.NONE);
+        assertThat(heat(off(), 7.0, NINE, changeAgo(ChangeSource.RULE, 10), false)).isEqualTo(Action.HEAT);
+        assertThat(heat(off(), 7.0, NINE, changeAgo(ChangeSource.WINDOW, 1), false)).as("not an off of the rule")
             .isEqualTo(Action.HEAT);
-        assertThat(RuleEvaluator.heatTarget(HEATING, HOUSE_ON_21)).contains(21);
     }
 
-    @Test
-    void should_leave_a_unit_heating_at_the_target_already() {
-        assertThat(heat(heating(21), null, HOUSE_ON_21, null, false)).isEqualTo(Action.NONE);
-        assertThat(heat(heating(23), null, HOUSE_ON_21, null, false)).as("another target").isEqualTo(Action.HEAT);
-    }
-
-    //a schedule by half a degree, rounded half up to the whole degree of the unit
-    @Test
-    void should_round_a_schedule_to_the_whole_degree() {
-        assertThat(RuleEvaluator.heatTarget(HEATING, new Heating(true, 20.5))).contains(21);
-        assertThat(RuleEvaluator.heatTarget(HEATING, new Heating(true, 20.0))).contains(20);
-    }
-
-    //below 16 C the unit cannot heat: "do not heat" (owner 2026-11-08) - the base level of 9 C of sanctum
-    @Test
-    void should_not_heat_for_a_schedule_below_sixteen() {
-        assertThat(RuleEvaluator.heatTarget(HEATING, new Heating(true, 9.0))).isEmpty();
-        assertThat(RuleEvaluator.heatTarget(HEATING, new Heating(true, 15.5))).contains(16);
-        assertThat(RuleEvaluator.heatTarget(HEATING, new Heating(true, 15.0))).isEmpty();
-        assertThat(heat(off(), null, new Heating(true, 9.0), null, false)).isEqualTo(Action.NONE);
-    }
-
-    //while keep below is on, the heating never goes above its threshold minus the hysteresis (25 - 1)
-    @Test
-    void should_heat_at_most_to_the_threshold_minus_the_hysteresis() {
-        assertThat(RuleEvaluator.heatTarget(HEATING, new Heating(true, 26.0))).contains(24);
-        assertThat(RuleEvaluator.heatTarget(new AirconRule(144, new AirconRule.KeepBelow(false, new BigDecimal("25.0"),
-            new BigDecimal("1.0"), 22), new AirconRule.HeatBySchedule(true), NOW), new Heating(true, 26.0))).contains(26);
-    }
-
-    @Test
-    void should_switch_off_the_heating_it_switched_on_when_the_schedule_ends() {
-        assertThat(heat(heating(21), null, new Heating(true, null), ruleChange(), false)).as("no schedule now")
-            .isEqualTo(Action.STOP_HEATING);
-        assertThat(heat(heating(21), null, new Heating(false, 21.0), ruleChange(), false)).as("the house off")
-            .isEqualTo(Action.STOP_HEATING);
-        assertThat(heat(heating(21), null, new Heating(true, 9.0), ruleChange(), false)).as("below 16")
-            .isEqualTo(Action.STOP_HEATING);
-    }
-
-    //a heating the window stopped and set back is still the rule's: its schedule ending switches it off
+    //a heating the window stopped and set back is still the rule's: the schedule reached switches it off
     @Test
     void should_switch_off_a_heating_the_window_set_back() {
-        assertThat(heat(heating(21), null, new Heating(true, null), new Change(ChangeSource.WINDOW, NOW.minusHours(1)),
-            false)).isEqualTo(Action.STOP_HEATING);
+        assertThat(heat(heating(21), 9.5, NINE, changeAgo(ChangeSource.WINDOW, 60), false)).isEqualTo(Action.STOP_HEATING);
         assertThat(decide(on(Mode.COOL), 23.0, new Change(ChangeSource.WINDOW, NOW.minusHours(1)), false))
             .as("the cooling as well").isEqualTo(Action.OFF);
     }
 
-    //the rule switches off only what it switched on to heat
+    //the comfort the owner switches on by hand is never switched off - also after the 30 minutes of the person hold
     @Test
     void should_not_switch_off_a_heating_it_did_not_switch_on() {
-        assertThat(heat(heating(21), null, new Heating(true, null), new Change(ChangeSource.REMOTE, NOW.minusHours(2)),
-            false)).isEqualTo(Action.NONE);
-        assertThat(heat(on(Mode.COOL), null, new Heating(true, null), ruleChange(), false)).as("cooling")
-            .isEqualTo(Action.NONE);
-        assertThat(heat(off(), null, new Heating(true, null), ruleChange(), false)).as("off").isEqualTo(Action.NONE);
+        assertThat(heat(heating(21), 20.0, NINE, changeAgo(ChangeSource.REMOTE, 120), false)).isEqualTo(Action.NONE);
+        assertThat(heat(heating(21), 20.0, NINE, changeAgo(ChangeSource.DASHBOARD, 120), false)).isEqualTo(Action.NONE);
+        assertThat(heat(heating(21), 20.0, NINE, null, false)).as("not known").isEqualTo(Action.NONE);
+        assertThat(heat(on(Mode.COOL), 20.0, NINE, ruleChange(), false))
+            .as("cooling: the off of keep below").isEqualTo(Action.OFF);
     }
 
-    //heating-service not read: nothing, neither the heating nor its off
+    //no reading of the room, or heating-service not read: nothing
     @Test
-    void should_never_act_on_a_heating_not_known() {
-        assertThat(heat(off(), null, null, null, false)).isEqualTo(Action.NONE);
-        assertThat(heat(heating(21), null, null, ruleChange(), false)).isEqualTo(Action.NONE);
+    void should_never_act_without_a_reading_or_a_schedule_known() {
+        assertThat(heat(off(), null, NINE, null, false)).isEqualTo(Action.NONE);
+        assertThat(heat(heating(21), null, NINE, ruleChange(), false)).isEqualTo(Action.NONE);
+        assertThat(heat(off(), 5.0, null, null, false)).isEqualTo(Action.NONE);
+        assertThat(heat(heating(21), 12.0, null, ruleChange(), false)).isEqualTo(Action.NONE);
     }
 
     @Test
     void should_not_heat_while_something_holds_the_unit_off() {
-        assertThat(heat(off(), null, HOUSE_ON_21, null, true)).isEqualTo(Action.NONE);
-        assertThat(heat(heating(21), null, new Heating(true, null), ruleChange(), true)).as("the off still goes")
+        assertThat(heat(off(), 5.0, NINE, null, true)).isEqualTo(Action.NONE);
+        assertThat(heat(heating(21), 9.0, NINE, ruleChange(), true)).as("the off still goes")
             .isEqualTo(Action.STOP_HEATING);
     }
 
+    //a unit a person switched off is protected again once the 30 minutes of the hold are over
     @Test
     void should_not_heat_within_thirty_minutes_of_a_change_of_a_person() {
-        assertThat(heat(off(), null, HOUSE_ON_21, new Change(ChangeSource.REMOTE, NOW.minusMinutes(29)), false))
-            .isEqualTo(Action.NONE);
-        assertThat(heat(off(), null, HOUSE_ON_21, new Change(ChangeSource.REMOTE, NOW.minusMinutes(31)), false))
-            .isEqualTo(Action.HEAT);
+        assertThat(heat(off(), 7.0, NINE, changeAgo(ChangeSource.REMOTE, 29), false)).isEqualTo(Action.NONE);
+        assertThat(heat(off(), 7.0, NINE, changeAgo(ChangeSource.REMOTE, 31), false)).isEqualTo(Action.HEAT);
     }
 
-    //keep below wins: the room above its threshold is cooled, never heated - also while the unit cools already
+    //keep below wins: the room above its threshold is cooled, never heated - also with a schedule above it
     @Test
     void should_let_keep_below_win() {
-        assertThat(heat(off(), 25.5, HOUSE_ON_21, null, false)).isEqualTo(Action.COOL);
-        assertThat(heat(on(Mode.COOL), 25.5, HOUSE_ON_21, null, false)).as("cooling already").isEqualTo(Action.NONE);
-        assertThat(heat(off(), 25.5, HOUSE_ON_21, null, true)).as("held off").isEqualTo(Action.NONE);
-        assertThat(heat(off(), 24.5, HOUSE_ON_21, null, false)).as("below the threshold").isEqualTo(Action.HEAT);
+        final Heating above = new Heating(27.0);
+        assertThat(heat(off(), 25.5, above, null, false)).isEqualTo(Action.COOL);
+        assertThat(heat(on(Mode.COOL), 25.5, above, null, false)).as("cooling already").isEqualTo(Action.NONE);
+        assertThat(heat(off(), 25.5, above, null, true)).as("held off").isEqualTo(Action.NONE);
+        assertThat(heat(off(), 24.5, above, null, false)).as("below the threshold").isEqualTo(Action.HEAT);
     }
 
     @Test
     void should_not_heat_by_a_rule_that_does_not() {
-        assertThat(RuleEvaluator.decide(SANCTUM, off(), null, HOUSE_ON_21, null, false, NOW, HOLD))
-            .isEqualTo(Action.NONE);
+        assertThat(RuleEvaluator.decide(SANCTUM, off(), 5.0, NINE, null, false, NOW, TIMING)).isEqualTo(Action.NONE);
     }
 
     private static final UnitStatus COOLING_OFF = status(false, Mode.COOL);
     private static final AirconRule HEATING = new AirconRule(144, new AirconRule.KeepBelow(true, new BigDecimal("25.0"),
         new BigDecimal("1.0"), 22), new AirconRule.HeatBySchedule(true), NOW);
-    private static final Heating HOUSE_ON_21 = new Heating(true, 21.0);
+    private static final Heating NINE = new Heating(9.0);
+    private static final Heating NO_SCHEDULE = new Heating(null);
 
     private static Action heat(final UnitState unit, final Double room, final Heating heating, final Change change,
                                final boolean heldOff) {
-        return RuleEvaluator.decide(HEATING, unit, room, heating, change, heldOff, NOW, HOLD);
+        return RuleEvaluator.decide(HEATING, unit, room, heating, change, heldOff, NOW, TIMING);
+    }
+
+    private static Change changeAgo(final ChangeSource source, final int minutes) {
+        return new Change(source, NOW.minusMinutes(minutes));
     }
 
     private static UnitState heating(final int target) {
@@ -225,7 +228,7 @@ class RuleEvaluatorTest {
     }
 
     private static Action decide(final UnitState unit, final Double room, final Change change, final boolean heldOff) {
-        return RuleEvaluator.decide(SANCTUM, unit, room, null, change, heldOff, NOW, HOLD);
+        return RuleEvaluator.decide(SANCTUM, unit, room, null, change, heldOff, NOW, TIMING);
     }
 
     private static Change ruleChange() {
