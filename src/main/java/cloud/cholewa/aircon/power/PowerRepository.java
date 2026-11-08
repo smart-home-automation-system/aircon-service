@@ -74,6 +74,8 @@ public class PowerRepository {
         WHERE plug = :plug ORDER BY started_at DESC, id DESC LIMIT 1
         """;
 
+    private static final String BEFORE = "before";
+
     private static final String RUNNING_CYCLES = "SELECT id FROM aircon_power_cycle WHERE result = 'running'";
 
     private final DatabaseClient databaseClient;
@@ -162,17 +164,17 @@ public class PowerRepository {
 
     public Mono<Void> deleteSamplesBefore(final LocalDateTime before) {
         return databaseClient.sql("DELETE FROM aircon_power_sample WHERE sampled_at < :before")
-            .bind("before", before).fetch().rowsUpdated().then();
+            .bind(BEFORE, before).fetch().rowsUpdated().then();
     }
 
     public Mono<Void> deleteDaysBefore(final LocalDate before) {
         return databaseClient.sql("DELETE FROM aircon_power_day WHERE day < :before")
-            .bind("before", before).fetch().rowsUpdated().then();
+            .bind(BEFORE, before).fetch().rowsUpdated().then();
     }
 
     public Mono<Void> deleteCyclesBefore(final LocalDateTime before) {
         return databaseClient.sql("DELETE FROM aircon_power_cycle WHERE started_at < :before AND result <> 'running'")
-            .bind("before", before).fetch().rowsUpdated().then();
+            .bind(BEFORE, before).fetch().rowsUpdated().then();
     }
 
     private static <T> DatabaseClient.GenericExecuteSpec bindNullable(final DatabaseClient.GenericExecuteSpec spec,

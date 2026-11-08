@@ -116,7 +116,7 @@ public class PowerCycle {
             .then(Mono.defer(() -> plugMeter.read(PlugName.INDOOR, plug, LocalDateTime.now(clock))))
             .filter(reading -> Boolean.TRUE.equals(reading.output()))
             .switchIfEmpty(Mono.error(() -> new IllegalStateException("the indoor plug reads off")))
-            .retryWhen(Retry.fixedDelay(ON_ATTEMPTS - 1, ON_BACKOFF))
+            .retryWhen(Retry.fixedDelay(ON_ATTEMPTS - 1L, ON_BACKOFF))
             .flatMap(reading -> finish(id, CycleResult.DONE)
                 .then(Mono.fromRunnable(() -> log.info("Power cycle {}: the indoor plug is on again", id))))
             .onErrorResume(failure -> Mono.fromRunnable(() -> log.error(
