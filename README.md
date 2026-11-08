@@ -37,12 +37,13 @@ protocol (HAS-380), the state of every unit, read every 30 s and stored (HAS-381
 commands with the minimum of 22 °C in cooling - in the API and against the remote (HAS-382), and the availability
 monitor on the technical channel of Discord (HAS-383), and the open windows: a window open in the room stops the unit,
 the closed window sets it back (HAS-384), the empty house and a lost grid switch the units off (HAS-385), and a rule per unit keeps its room below a
-temperature (HAS-386) and protects it against frost by the heating schedule of the room (HAS-387).
+temperature (HAS-386) and protects it against frost by the heating schedule of the room (HAS-387), and the draw of
+the two plugs that feed the units with the manual power cycle of the indoor plug (HAS-390).
 What comes next:
 
 | Task | What |
 |---|---|
-| HAS-389 to HAS-391 | the power of the plugs, the run hours |
+| HAS-391 | the run hours and the filter reminder |
 
 # The Gree protocol
 
@@ -66,8 +67,8 @@ waits 3 s for its answer and is sent again up to twice (`aircon.gree.*`).
 - **The broker**: one connection, `/notification` (user `notification`) - the alerts of the availability monitor
   through `NotificationPublisher` of `cholewa-commons`. **`rabbitmq-password` is mandatory** (`cholewa.required-properties`);
   a local run publishes into the dev queue (`cholewa.notification.env: dev`).
-- Build: `mvn verify` (JDK 21) - **needs a running Docker**: `AirconStateRepositoryTest`, `WindowHoldRepositoryTest` and
-  `RuleRunRepositoryTest`, `RuleRepositoryTest` run their SQL against a PostgreSQL of Testcontainers. The driver is tested against a fake unit on a UDP port of the
+- Build: `mvn verify` (JDK 21) - **needs a running Docker**: `AirconStateRepositoryTest`, `WindowHoldRepositoryTest`,
+  `RuleRunRepositoryTest`, `RuleRepositoryTest` and `PowerRepositoryTest` run their SQL against a PostgreSQL of Testcontainers. The driver is tested against a fake unit on a UDP port of the
   loopback, with a made-up MAC and key.
 - Ports: local profile `6015` (management `8015`); in the deployed `home` profile the service
   listens on `6200` and Actuator on `8200` like every service in the cluster. The ingress routes
@@ -84,6 +85,9 @@ waits 3 s for its answer and is sent again up to twice (`aircon.gree.*`).
   finds - a read, but a real one, of the units of the house; it reads the windows from `heating-service` on
   `localhost:6002`, who is at home from `presence-service` on `localhost:6009` and the grid from `energy-service` on
   `localhost:6014`, and **switches the real units** when a window holds, the house is empty or the grid is lost.
+- **The plugs** (HAS-390): `plug-indoor-address` and `plug-sanctum-address` are **mandatory**
+  (`cholewa.required-properties`) - the manifest has them. A local run with the real addresses reads the real plugs
+  every 30 s, and a `POST /power-cycle` switches the real indoor plug off.
 
 # API
 
@@ -91,13 +95,17 @@ Under the base path `/home/aircon`, routed by the gateway by path, every method 
 
 | Method | Path | Answer |
 |---|---|---|
-| `GET` | `/home/aircon` | every air conditioner of the registry (the kind `air conditioner`, switched on) in its order, with its state as last read (every 30 s): `id`, `name`, `room`, `power`, `mode` (`auto`, `cool`, `dry`, `fan`, `heat`), `targetTemperature` and `roomTemperature` in °C, `fanSpeed` (`auto`, `low`, `medium-low`, `medium`, `medium-high`, `high`), `swingVertical` / `swingHorizontal` (the position codes of the unit), `quiet`, `turbo`, `sleep`, `display`, `reachable` (whether the last read answered), `unreachableSince` (since when it does not answer - HAS-383), `updatedAt` (house time of the last read that answered), `lastCommandConfirmed`, `minimumRestoredAt` (HAS-382) and `window` (HAS-384: `state` - `open`, `closed`, `no sensor`, `unknown` -, `openSince` and `hold` as heating-service last gave them for the room, left out while it does not answer; `restoreUntil` while the window holds the unit stopped). **A field not known is left out** - a unit not read yet answers `id`, `name` and `room` alone, `reachable` is left out after a start until the first read; a unit that stopped answering keeps what it reported, with `reachable: false`. `503 REGISTRY_UNAVAILABLE` until the registry was read once |
+| `GET` | `/home/aircon` | every air conditioner of the registry (the kind `air conditioner`, switched on) in its order, with its state as last read (every 30 s): `id`, `name`, `room`, `power`, `mode` (`auto`, `cool`, `dry`, `fan`, `heat`), `targetTemperature` and `roomTemperature` in °C, `fanSpeed` (`auto`, `low`, `medium-low`, `medium`, `medium-high`, `high`), `swingVertical` / `swingHorizontal` (the position codes of the unit), `quiet`, `turbo`, `sleep`, `display`, `reachable` (whether the last read answered), `unreachableSince` (since when it does not answer - HAS-383), `updatedAt` (house time of the last read that answered), `lastCommandConfirmed`, `minimumRestoredAt` (HAS-382) and `window` (HAS-384: `state` - `open`, `closed`, `no sensor`, `unknown` -, `openSince` and `hold` as heating-service last gave them for the room, left out while it does not answer; `restoreUntil` while the window holds the unit stopped) and `compressorRunning` (HAS-390: whether the plug that feeds the unit draws above the standby - the indoor plug feeds four units, so `true` there says one of them runs). **A field not known is left out** - a unit not read yet answers `id`, `name` and `room` alone, `reachable` is left out after a start until the first read; a unit that stopped answering keeps what it reported, with `reachable: false`. `503 REGISTRY_UNAVAILABLE` until the registry was read once |
 | `GET` | `/home/aircon/{id}` | one unit, the same fields; `404 NOT_FOUND_AIRCON` for an id no air conditioner of the registry has |
 | `GET` | `/home/aircon/automation` | the empty house and the grid as the last pass of the automation read them (HAS-385): `{"emptyHouse": {"empty", "since", "actedAt"}, "grid": {"state", "actedAt"}}` - `empty` whether nobody is at home, `since` the last member to go, `state` `present` / `lost`, `actedAt` when the units were switched off for this empty house or outage; a field not known is left out (both objects empty before the first pass) |
 | `GET` | `/home/aircon/rules` | the rule of every unit that has one (HAS-386): `[{"unitId", "keepBelow": {"enabled", "threshold", "hysteresis", "target"}, "heatBySchedule": {"enabled"}, "updatedAt"}]` |
 | `GET` | `/home/aircon/{id}/rules` | the rule of one unit; `404 NOT_FOUND_RULE` for a unit without one |
 | `PUT` | `/home/aircon/{id}/rules` | **writes the rule of a unit whole - it acts on the house within the minute**: `{"keepBelow": {"enabled", "threshold", "hysteresis", "target"}, "heatBySchedule": {"enabled"}}` - the threshold 20 to 30 °C by 0.5, the hysteresis 0.5 to 3 by 0.5 (1 when left out), the target a whole degree 22 to 30 and not above the threshold (`RuleRules`, copied by the dashboard); `heatBySchedule` left out is off. Answers the stored rule; `400 INVALID_RULE` with the reason, `404 NOT_FOUND_AIRCON`, `503 REGISTRY_UNAVAILABLE` |
 | `DELETE` | `/home/aircon/{id}/rules` | removes the rule of a unit, `204`; `404 NOT_FOUND_RULE` |
+| `GET` | `/home/aircon/power` | the two plugs that feed the units (HAS-390) - not devices of the registry: `[{"plug", "rooms", "relay", "power", "voltage", "current", "output", "compressorRunning", "reachable", "updatedAt", "todayKwh", "last7DaysKwh", "last30DaysKwh"}]`. `indoor` is the Plus Plug S of the four indoor units (`relay: true`, `output` its relay), `sanctum` the PM Mini Gen3 of sanctum (`relay: false` - a meter, never switched). Read every 30 s: the power in W, the voltage, the current from a reading not older than 2 min, `compressorRunning` above `aircon.plugs.standby-watts` (20 W); `reachable: false` while the plug does not answer; the energy in kWh today so far and on the last 7 and 30 closed days before today (`aircon_power_day`, closed from 00:15). **A field not known is left out** |
+| `GET` | `/home/aircon/power/samples?plug=&from=&to=` | the power of a plug in buckets, oldest first: `[{"at", "avg", "min", "max"}]` in W - 5 minutes up to 2 days, 30 minutes up to 8, 2 hours beyond, at most 31 days (the rules of the weather history; samples kept 30 days). `400 INVALID_RANGE` with the reason, `404 NOT_FOUND_PLUG` |
+| `GET` | `/home/aircon/power-cycle` | whether the indoor plug may be power cycled now: `{"allowed", "reason", "lastRun": {"startedAt", "finishedAt", "requestedBy", "result"}}` - `result` `running`, `done` or `failed` |
+| `POST` | `/home/aircon/power-cycle?member=` | **switches the indoor plug - the four indoor units - off and on again**, by hand only (never after an alert): refused `409 AIRCON_RUNNING` while an indoor unit is known on (answering and on), the plug draws above the standby or its draw is not known, `409 POWER_CYCLE_IN_PROGRESS` while one runs. `202` once the plug is off; on again after `aircon.plugs.cycle-off-for` (15 s), up to three times 5 s apart, read back - a plug that stays off is `failed` and an alert on the technical channel. The off not taken: the plug switched on at once, `502 DEVICE_FAILED`. `member` (optional, at most 50 characters) is stored with the cycle in `aircon_power_cycle`. A cycle a restart cut off is ended at the start - the plug switched on, the row `failed` |
 | `GET` | `/home/aircon/rooms/{room}` | the units of a room by the name of the registry (`office`, `hall up`); `404 NOT_FOUND_ROOM` for a room without a unit, or a name that is no room |
 | `POST` | `/home/aircon/{id}?source=` | **a command to the unit - a write to the house**: a JSON body of optional fields in the words of the reads (`power`, `mode`, `targetTemperature`, `fanSpeed`, `swingVertical`, `swingHorizontal`, `quiet`, `turbo`, `sleep`, `display`); `source` is `dashboard` (the default), `rule`, `window`, `empty-house` or `grid-outage`. `202` once the unit took it; read back 2 s later - not taken, sent once more and read again, never a third time - and told as `lastCommandConfirmed` in the reads; the change in the history under the source. `400 INVALID_COMMAND` with the reason (the rules below, an empty command, another source), `502 DEVICE_FAILED` when the unit did not answer (it may have taken it all the same), `404 NOT_FOUND_AIRCON`, `503 REGISTRY_UNAVAILABLE` |
 | `POST` | `/home/aircon/rooms/{room}?source=` | the same body for every unit of the room, one after the other; `202` with what each came to - `[{"id", "sent", "code"}]` (`code` for one not sent: `INVALID_COMMAND`, `DEVICE_FAILED`); `404 NOT_FOUND_ROOM` |
