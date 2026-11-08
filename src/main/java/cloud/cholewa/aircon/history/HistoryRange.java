@@ -10,9 +10,8 @@ import java.util.Optional;
 //The rules of the range a history is asked for and the width of the buckets it is answered in - a copy of HistoryRange of
 //energy-service (HAS-331), itself a copy of weather-service (HAS-238), which took them from water-service and
 //heating-service, so the charts of the dashboard need no new client logic. The fifth copy, kept by the owner's choice
-//(2026-11-08, HAS-390) - no move to cholewa-commons. A range that breaks a rule is the INVALID_RANGE of this service;
-//the power of the plugs (HAS-390) and the runs of a unit (HAS-391) share it.
-//The buckets are answered with the average, the lowest and the highest power in them
+//on 2026-11-08 in HAS-390 - no move to cholewa-commons. A range that breaks a rule is the INVALID_RANGE of this service,
+//and both the power of the plugs of HAS-390 and the runs of a unit of HAS-391 share it
 public final class HistoryRange {
 
     static final long MAX_DAYS = 31;
