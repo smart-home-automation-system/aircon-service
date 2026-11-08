@@ -16,6 +16,7 @@ import reactor.test.StepVerifier;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -52,7 +53,8 @@ class HeatingClientTest {
 
         client.getRooms().as(StepVerifier::create)
             .assertNext(rooms -> assertThat(rooms).containsExactly(
-                new HeatingRoom("office", new RoomWindow("open", LocalDateTime.of(2026, 11, 7, 18, 26), true)),
+                new HeatingRoom("office", new RoomWindow("open", LocalDateTime.of(2026, 11, 7, 18, 26), true), null,
+                    List.of(new HeatingRoom.Heater(null))),
                 new HeatingRoom("sanctum", new RoomWindow("no sensor", null, false)),
                 new HeatingRoom("winter garden", new RoomWindow("closed", null, false))))
             .verifyComplete();
@@ -75,6 +77,52 @@ class HeatingClientTest {
                 new RoomWindow("no sensor", null, false),
                 new HeatingRoom.Reading(17.1, LocalDateTime.of(2026, 11, 7, 18, 46, 49)))))
             .verifyComplete();
+    }
+
+    //what the schedule of each heater asks for now (HAS-387) - as heating-service 1.21.0 answers sanctum
+    @Test
+    void should_read_what_the_schedules_ask_for() {
+        server.enqueue(json("""
+            [{"name":"sanctum","mode":"HEATING","temperature":{"value":20.1,"updatedAt":"2026-11-07T23:35:25.701805"},
+              "window":{"state":"no sensor","hold":false},
+              "heaters":[{"type":"radiator","scheduledTemperature":9,"schedules":[{"id":93,"type":"HEATING",
+                "days":["MONDAY"],"startTime":"00:00:00","endTime":"23:59:00","temperature":9,"enabled":true}]}]}]
+            """));
+
+        client.getRooms().as(StepVerifier::create)
+            .assertNext(rooms -> assertThat(rooms).singleElement()
+                .satisfies(room -> assertThat(room.scheduledTemperature()).contains(9.0)))
+            .verifyComplete();
+    }
+
+    //the switch of the heating of the house (HAS-387)
+    @Test
+    void should_read_the_house_switch() throws InterruptedException {
+        server.enqueue(json("{\"isHeatingEnabled\":true,\"updatedAt\":\"2026-10-31T11:22:22.131498\"}"));
+        server.enqueue(json("{\"isHeatingEnabled\":false}"));
+
+        client.getHouseSwitch().as(StepVerifier::create).expectNext(true).verifyComplete();
+        client.getHouseSwitch().as(StepVerifier::create).expectNext(false).verifyComplete();
+
+        final RecordedRequest request = server.takeRequest();
+        assertThat(request.getMethod()).isEqualTo("GET");
+        assertThat(request.getUrl().encodedPath()).isEqualTo("/home/heating");
+    }
+
+    //no switch in the answer is a failed call, never a house off; an error is a WARN
+    @Test
+    void should_fail_on_an_answer_without_the_switch() {
+        server.enqueue(json("{}"));
+        server.enqueue(new MockResponse.Builder().code(200).addHeader("Content-Type", "application/json").build());
+        server.enqueue(new MockResponse.Builder().code(503).addHeader("Content-Type", "application/json")
+            .body("{\"errors\":[{\"message\":\"Down\"}]}").build());
+
+        client.getHouseSwitch().as(StepVerifier::create).expectError(HeatingCallException.class).verify();
+        client.getHouseSwitch().as(StepVerifier::create).expectError(HeatingCallException.class).verify();
+        client.getHouseSwitch().as(StepVerifier::create)
+            .expectErrorSatisfies(failure -> assertThat(failure).hasMessage("heating-service answered 503"))
+            .verify();
+        assertThat(clientLog.list).singleElement().satisfies(line -> assertThat(line.getLevel()).isEqualTo(Level.WARN));
     }
 
     //what heating-service said goes to the log, never further
