@@ -62,7 +62,9 @@ public final class RuleEvaluator {
         if (keepBelow != Action.NONE || roomAboveTheThreshold(rule, roomTemperature)) {
             return keepBelow;
         }
-        return frostProtection(rule, unit, roomTemperature, heating, lastChange, heldOff, now, timing);
+        return rule.heatBySchedule().enabled()
+            ? frostProtection(unit, roomTemperature, heating, lastChange, heldOff, now, timing)
+            : Action.NONE;
     }
 
     private static Action keepBelow(final AirconRule rule, final UnitState unit, final Double roomTemperature,
@@ -81,10 +83,10 @@ public final class RuleEvaluator {
             : Action.NONE;
     }
 
-    private static Action frostProtection(final AirconRule rule, final UnitState unit, final Double roomTemperature,
-                                          final Heating heating, final Change lastChange, final boolean heldOff,
-                                          final LocalDateTime now, final RuleProperties timing) {
-        if (!rule.heatBySchedule().enabled() || heating == null) {
+    private static Action frostProtection(final UnitState unit, final Double roomTemperature, final Heating heating,
+                                          final Change lastChange, final boolean heldOff, final LocalDateTime now,
+                                          final RuleProperties timing) {
+        if (heating == null) {
             return Action.NONE;
         }
         if (heating.scheduledTemperature() == null) {

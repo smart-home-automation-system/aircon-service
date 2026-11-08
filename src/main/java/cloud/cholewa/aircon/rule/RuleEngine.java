@@ -43,9 +43,9 @@ import java.util.stream.Collectors;
 //each judged by RuleEvaluator; a command through RuleCommands under the source rule (aircon_rule_run). One unit after the
 //other, one that fails cuts neither the others nor the pass; a command not taken is judged again the next minute - but
 //after MAX_NOT_TAKEN in a row the rule pauses for that unit (one WARN) until it asks for nothing or a command is taken.
-//Since HAS-387 the frost protection: what the schedule of the room asks for (RoomSchedules, written by the same read of
-//the window pass) against the same reading of the room - the house switch of heating-service is not read, the protection
-//holds while the heating of the house is off too
+//Since HAS-387 the frost protection: what the schedule of the room asks for, kept by RoomSchedules from the same read of
+//the window pass, against the same reading of the room. The house switch of heating-service is not read, so the
+//protection holds while the heating of the house is off too
 @Slf4j
 @Component
 @RequiredArgsConstructor
