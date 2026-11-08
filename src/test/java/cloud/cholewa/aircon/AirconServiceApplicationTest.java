@@ -3,6 +3,7 @@ package cloud.cholewa.aircon;
 import cloud.cholewa.aircon.command.CommandProperties;
 import cloud.cholewa.aircon.driver.GreeProperties;
 import cloud.cholewa.aircon.monitor.MonitorProperties;
+import cloud.cholewa.aircon.filter.FilterProperties;
 import cloud.cholewa.aircon.power.PlugProperties;
 import cloud.cholewa.aircon.rule.RuleProperties;
 import cloud.cholewa.commons.notification.NotificationPublisher;
@@ -40,6 +41,8 @@ class AirconServiceApplicationTest {
     private RuleProperties ruleProperties;
     @Autowired
     private PlugProperties plugProperties;
+    @Autowired
+    private FilterProperties filterProperties;
 
     @Test
     void contextLoads() {
@@ -126,6 +129,12 @@ class AirconServiceApplicationTest {
             new PlugProperties.Plug("localhost:1", PlugProperties.Meter.SWITCH, 0, List.of("office", "livia", "tobi", "bedroom")),
             new PlugProperties.Plug("localhost:1", PlugProperties.Meter.PM1, 0, List.of("sanctum")),
             20, Duration.ofSeconds(15)));
+    }
+
+    //HAS-391: a filter named after 200 h of work since its cleaning, and every 50 h more
+    @Test
+    void should_remind_of_the_filters_as_agreed() {
+        assertThat(filterProperties).isEqualTo(new FilterProperties(200, 50));
     }
 
     //the plugs that feed the units (their power card, later in the epic) are read through the clients of shelly-client

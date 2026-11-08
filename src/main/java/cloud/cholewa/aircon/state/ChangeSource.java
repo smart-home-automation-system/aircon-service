@@ -1,5 +1,6 @@
 package cloud.cholewa.aircon.state;
 
+import com.fasterxml.jackson.annotation.JsonValue;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
@@ -20,6 +21,8 @@ public enum ChangeSource {
     //the guard of HAS-382: a target below 22 C in cooling written back to 22 C
     MINIMUM_RESTORED("minimum-restored");
 
+    //the word of the table is the word of the API too (the runs of a unit, HAS-391)
+    @JsonValue
     private final String value;
 
     //the word as the table writes it, or nothing for a word this version does not know

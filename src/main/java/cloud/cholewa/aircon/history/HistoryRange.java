@@ -1,4 +1,4 @@
-package cloud.cholewa.aircon.power;
+package cloud.cholewa.aircon.history;
 
 import cloud.cholewa.aircon.error.AirconException;
 
@@ -10,9 +10,10 @@ import java.util.Optional;
 //The rules of the range a history is asked for and the width of the buckets it is answered in - a copy of HistoryRange of
 //energy-service (HAS-331), itself a copy of weather-service (HAS-238), which took them from water-service and
 //heating-service, so the charts of the dashboard need no new client logic. The fifth copy, kept by the owner's choice
-//(2026-11-08, HAS-390) - no move to cholewa-commons. A range that breaks a rule is the INVALID_RANGE of this service.
+//(2026-11-08, HAS-390) - no move to cholewa-commons. A range that breaks a rule is the INVALID_RANGE of this service;
+//the power of the plugs (HAS-390) and the runs of a unit (HAS-391) share it.
 //The buckets are answered with the average, the lowest and the highest power in them
-final class HistoryRange {
+public final class HistoryRange {
 
     static final long MAX_DAYS = 31;
 
@@ -34,7 +35,7 @@ final class HistoryRange {
     }
 
     //what is wrong with the range, as the 400 to answer - empty for a valid one
-    static Optional<AirconException> violation(final LocalDateTime from, final LocalDateTime to) {
+    public static Optional<AirconException> violation(final LocalDateTime from, final LocalDateTime to) {
         if (isOutsideTheCalendar(from) || isOutsideTheCalendar(to)) {
             return Optional.of(AirconException.invalidRange(
                 "from and to must be within the years " + MIN_YEAR + " to " + MAX_YEAR));
@@ -51,7 +52,7 @@ final class HistoryRange {
     //The width of the buckets of a valid range: 576, 384 and 372 points at most for a range that starts on a bucket, one
     //more for one that does not - its first bucket starts before "from". The length is counted on the wall clock, as the
     //buckets are - hence the fixed offset, not the zone of the house: two days across a clock change are two days here
-    static Duration bucket(final LocalDateTime from, final LocalDateTime to) {
+    public static Duration bucket(final LocalDateTime from, final LocalDateTime to) {
         final Duration length = Duration.between(from.atOffset(ZoneOffset.UTC), to.atOffset(ZoneOffset.UTC));
 
         if (length.compareTo(SHORT_RANGE) <= 0) {

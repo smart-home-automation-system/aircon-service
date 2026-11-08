@@ -121,6 +121,11 @@ aircon:
         - sanctum
     standby-watts: 20
     cycle-off-for: PT15S
+  # the filters (HAS-391): after remind-after-hours of work since its cleaning a filter is named on Discord, and again
+  # every remind-again-hours more until it is cleaned
+  filter:
+    remind-after-hours: 200
+    remind-again-hours: 50
 
 cholewa:
   # refuses the start before the first bean when one of these has no value (cholewa-commons >= 1.9.0)

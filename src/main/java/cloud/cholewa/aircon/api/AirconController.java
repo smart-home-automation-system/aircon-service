@@ -14,6 +14,8 @@ import cloud.cholewa.aircon.api.model.PlugReply;
 import cloud.cholewa.aircon.api.model.PowerCycleReply;
 import cloud.cholewa.aircon.power.PowerBucket;
 import cloud.cholewa.aircon.power.PowerService;
+import cloud.cholewa.aircon.filter.FilterService;
+import cloud.cholewa.aircon.filter.UnitRun;
 import jakarta.validation.constraints.Size;
 import org.springframework.format.annotation.DateTimeFormat;
 import lombok.RequiredArgsConstructor;
@@ -43,6 +45,22 @@ public class AirconController {
     private final AutomationService automationService;
     private final RuleService ruleService;
     private final PowerService powerService;
+    private final FilterService filterService;
+
+    //the filter of a unit cleaned (HAS-391): its hours start again at 0 - NOT_FOUND_AIRCON
+    @PostMapping("{id}/filter-cleaned")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    Mono<Void> filterCleaned(@PathVariable final long id) {
+        return filterService.cleaned(id);
+    }
+
+    //the changes of a unit with who made them, at most 31 days - INVALID_RANGE, NOT_FOUND_AIRCON
+    @GetMapping("{id}/runs")
+    Mono<List<UnitRun>> runs(@PathVariable final long id,
+                             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) final LocalDateTime from,
+                             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) final LocalDateTime to) {
+        return filterService.runs(id, from, to);
+    }
 
     //the plugs that feed the units: the draw now and the energy (HAS-390)
     @GetMapping("power")

@@ -3,6 +3,7 @@ package cloud.cholewa.aircon.power;
 import cloud.cholewa.aircon.api.model.PlugReply;
 import cloud.cholewa.aircon.api.model.PowerCycleReply;
 import cloud.cholewa.aircon.error.AirconException;
+import cloud.cholewa.aircon.history.HistoryRange;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
