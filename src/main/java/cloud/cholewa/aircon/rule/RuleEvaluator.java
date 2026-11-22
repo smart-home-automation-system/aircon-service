@@ -38,8 +38,10 @@ public final class RuleEvaluator {
     //the room below the schedule by more than this starts the heating, the schedule reached stops it
     static final BigDecimal FROST_BAND = BigDecimal.ONE;
 
-    //the changes a person makes: they hold the rule off for manualHold
-    private static final Set<ChangeSource> A_PERSON = Set.of(ChangeSource.REMOTE, ChangeSource.DASHBOARD);
+    //the changes a person makes, and safety-service at a fire alarm (HAS-467, owner 2026-11-22 - this service does not
+    //know the alarm episode, so its off holds like a person's): they hold the rule off for manualHold
+    private static final Set<ChangeSource> A_PERSON = Set.of(ChangeSource.REMOTE, ChangeSource.DASHBOARD,
+        ChangeSource.SAFETY);
 
     //the last changes that leave a unit the rule's: its own, and the window setting back what it stopped - or a unit
     //heated by the rule, stopped by a window and set back, would heat on after its room was warm again. A unit a person

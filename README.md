@@ -11,7 +11,7 @@
 
 ![GitHub top language](https://img.shields.io/github/languages/top/smart-home-automation-system/aircon-service?style=plastic)
 ![Java](https://img.shields.io/badge/java-21-yellow?style=plastic)
-![SpringBoot](https://img.shields.io/badge/SpringBoot-4.1.2-blue?style=plastic)
+![SpringBoot](https://img.shields.io/badge/SpringBoot-4.1.3-blue?style=plastic)
 [![Coverage](https://sonarcloud.io/api/project_badges/measure?project=smart-home-automation-system_aircon-service&metric=coverage)](https://sonarcloud.io/summary/new_code?id=smart-home-automation-system_aircon-service)
 [![Lines of Code](https://sonarcloud.io/api/project_badges/measure?project=smart-home-automation-system_aircon-service&metric=ncloc)](https://sonarcloud.io/summary/new_code?id=smart-home-automation-system_aircon-service)
 
@@ -105,7 +105,7 @@ Under the base path `/home/aircon`, routed by the gateway by path, every method 
 | `GET` | `/home/aircon/power-cycle` | whether the indoor plug may be power cycled now: `{"allowed", "reason", "lastRun": {"startedAt", "finishedAt", "requestedBy", "result"}}` - `result` `running`, `done` or `failed` |
 | `POST` | `/home/aircon/power-cycle?member=` | **switches the indoor plug - the four indoor units - off and on again**, by hand only (never after an alert): refused `409 AIRCON_RUNNING` while an indoor unit is known on (answering and on), the plug draws above the standby or its draw is not known, `409 POWER_CYCLE_IN_PROGRESS` while one runs. `202` once the plug is off; on again after `aircon.plugs.cycle-off-for` (15 s), up to three times 5 s apart, read back - a plug that stays off is `failed` and an alert on the technical channel. The off not taken: the plug switched on at once, `502 DEVICE_FAILED`. `member` (optional, at most 50 characters) is stored with the cycle in `aircon_power_cycle`. A cycle a restart cut off is ended at the start - the plug switched on, the row `failed` |
 | `GET` | `/home/aircon/rooms/{room}` | the units of a room by the name of the registry (`office`, `hall up`); `404 NOT_FOUND_ROOM` for a room without a unit, or a name that is no room |
-| `POST` | `/home/aircon/{id}?source=` | **a command to the unit - a write to the house**: a JSON body of optional fields in the words of the reads (`power`, `mode`, `targetTemperature`, `fanSpeed`, `swingVertical`, `swingHorizontal`, `quiet`, `turbo`, `sleep`, `display`); `source` is `dashboard` (the default), `rule`, `window`, `empty-house` or `grid-outage`. `202` once the unit took it; read back 2 s later - not taken, sent once more and read again, never a third time - and told as `lastCommandConfirmed` in the reads; the change in the history under the source. `400 INVALID_COMMAND` with the reason (the rules below, an empty command, another source), `502 DEVICE_FAILED` when the unit did not answer (it may have taken it all the same), `404 NOT_FOUND_AIRCON`, `503 REGISTRY_UNAVAILABLE` |
+| `POST` | `/home/aircon/{id}?source=` | **a command to the unit - a write to the house**: a JSON body of optional fields in the words of the reads (`power`, `mode`, `targetTemperature`, `fanSpeed`, `swingVertical`, `swingHorizontal`, `quiet`, `turbo`, `sleep`, `display`); `source` is `dashboard` (the default), `rule`, `window`, `empty-house`, `grid-outage` or `safety` (safety-service at a fire alarm, HAS-467 - logged in `aircon_rule_run` as an automatic command, a row a unit for a room). `202` once the unit took it; read back 2 s later - not taken, sent once more and read again, never a third time - and told as `lastCommandConfirmed` in the reads; the change in the history under the source. `400 INVALID_COMMAND` with the reason (the rules below, an empty command, another source), `502 DEVICE_FAILED` when the unit did not answer (it may have taken it all the same), `404 NOT_FOUND_AIRCON`, `503 REGISTRY_UNAVAILABLE` |
 | `POST` | `/home/aircon/rooms/{room}?source=` | the same body for every unit of the room, one after the other; `202` with what each came to - `[{"id", "sent", "code"}]` (`code` for one not sent: `INVALID_COMMAND`, `DEVICE_FAILED`); `404 NOT_FOUND_ROOM` |
 
 The rules of a command (`CommandRules`, copied by the dashboard): **cooling never below 22 °C**, a target of 16 to 30 °C
@@ -155,7 +155,7 @@ room of every unit - judged there by the rule that holds the heaters: a window o
 that is on in a room whose window holds is **switched off** (source `window`), what it was doing kept first in
 `aircon_window_hold`; once per opening - a unit a person switched on again with the window open is left alone.
 The windows closed within `aircon.window.restore-within` (1 h) of the stop **set it back as it was** (source
-`window`); later the unit stays off. A change of the remote or the dashboard while it is held gives the restore up.
+`window`); later the unit stays off. A change of the remote, the dashboard or `safety` while it is held gives the restore up.
 A room heating-service does not know, `no sensor`, `unknown` or heating-service not answering **never stops a
 unit**, and never sets one back - the stop then waits, at most until `restore-within`. A command the unit did not
 take is sent again the next minute; a unit that does not answer is sent nothing until it answers again.
@@ -188,6 +188,7 @@ nothing.
 - **Keep below**: the room above the threshold - the unit cools at the target (`source=rule`), unless it cools already;
   below the threshold minus the hysteresis - switched off, **only a unit the rule switched on**.
 - **Never against a person**: within `aircon.rule.manual-hold` (30 min) of a change made with the remote or the dashboard
+  (or by `safety` at a fire alarm - this service does not know the alarm, so its off holds like a person's, HAS-467)
   the rule leaves the unit alone; a unit a person switched on is never switched off by it.
 - Not while something else holds the unit off - the grid lost, the window of its room; independent of who is at home.
 - **Heat by schedule is a frost protection** (HAS-387; the comfort is switched on by hand): a thermostat on the reading

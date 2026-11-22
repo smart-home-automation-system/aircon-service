@@ -8,7 +8,7 @@ import cloud.cholewa.aircon.api.model.AutomationReply;
 import cloud.cholewa.aircon.automation.AutomationService;
 import cloud.cholewa.aircon.api.model.CommandRequest;
 import cloud.cholewa.aircon.api.model.RoomCommandReply;
-import cloud.cholewa.aircon.command.CommandService;
+import cloud.cholewa.aircon.automation.ApiCommands;
 import cloud.cholewa.aircon.unit.UnitService;
 import cloud.cholewa.aircon.api.model.PlugReply;
 import cloud.cholewa.aircon.api.model.PowerCycleReply;
@@ -41,7 +41,7 @@ import java.util.List;
 public class AirconController {
 
     private final UnitService unitService;
-    private final CommandService commandService;
+    private final ApiCommands apiCommands;
     private final AutomationService automationService;
     private final RuleService ruleService;
     private final PowerService powerService;
@@ -135,7 +135,7 @@ public class AirconController {
     @ResponseStatus(HttpStatus.ACCEPTED)
     Mono<Void> command(@PathVariable final long id, @RequestBody final CommandRequest command,
                        @RequestParam(defaultValue = "dashboard") final String source) {
-        return commandService.send(id, command, source);
+        return apiCommands.send(id, command, source);
     }
 
     //the same command to every unit of a room, one after the other - what each came to
@@ -143,7 +143,7 @@ public class AirconController {
     @ResponseStatus(HttpStatus.ACCEPTED)
     Mono<List<RoomCommandReply>> roomCommand(@PathVariable final String room, @RequestBody final CommandRequest command,
                                              @RequestParam(defaultValue = "dashboard") final String source) {
-        return commandService.sendToRoom(room, command, source);
+        return apiCommands.sendToRoom(room, command, source);
     }
 
     //the units of a room by the name of the registry ("office", "hall up")

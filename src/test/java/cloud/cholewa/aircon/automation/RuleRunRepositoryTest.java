@@ -69,11 +69,11 @@ class RuleRunRepositoryTest {
         databaseClient.sql("DELETE FROM aircon_automation_episode").then().as(StepVerifier::create).verifyComplete();
     }
 
-    //the words of the source and the result are pinned by the CHECKs of V6
+    //the words of the source and the result are pinned by the CHECKs of V6 (safety since V10, HAS-467)
     @Test
     void should_store_every_result_of_every_automatic_source() {
         for (final ChangeSource source : List.of(ChangeSource.RULE, ChangeSource.WINDOW, ChangeSource.EMPTY_HOUSE,
-            ChangeSource.GRID_OUTAGE)) {
+            ChangeSource.GRID_OUTAGE, ChangeSource.SAFETY)) {
             for (final RunResult result : RunResult.values()) {
                 insert(AT, source, AT, result);
             }
@@ -81,7 +81,7 @@ class RuleRunRepositoryTest {
         insert(AT, ChangeSource.WINDOW, null, RunResult.SENT);
 
         databaseClient.sql("SELECT count(*) AS n FROM aircon_rule_run").map(row -> row.get("n", Long.class)).one()
-            .as(StepVerifier::create).expectNext(13L).verifyComplete();
+            .as(StepVerifier::create).expectNext(16L).verifyComplete();
     }
 
     @Test

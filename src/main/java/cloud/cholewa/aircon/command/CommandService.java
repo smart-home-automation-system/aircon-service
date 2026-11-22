@@ -34,9 +34,9 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class CommandService {
 
-    //who may send a command: the dashboard, and the automations of the tasks to come
+    //who may send a command: the dashboard, the automations of the service, and safety-service at a fire alarm (HAS-467)
     static final Set<ChangeSource> SENDERS = Set.of(ChangeSource.DASHBOARD, ChangeSource.RULE, ChangeSource.WINDOW,
-        ChangeSource.EMPTY_HOUSE, ChangeSource.GRID_OUTAGE);
+        ChangeSource.EMPTY_HOUSE, ChangeSource.GRID_OUTAGE, ChangeSource.SAFETY);
 
     private final UnitRegistry unitRegistry;
     private final StateStore stateStore;
@@ -139,7 +139,7 @@ public class CommandService {
                 .filter(sender -> sender.getValue().equals(source))
                 .findFirst())
             .switchIfEmpty(Mono.error(() -> AirconException.invalidCommand(
-                "The source of a command is dashboard, rule, window, empty-house or grid-outage")));
+                "The source of a command is dashboard, rule, window, empty-house, grid-outage or safety")));
     }
 
     private Mono<List<AirConditioner>> registered() {

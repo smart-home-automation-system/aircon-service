@@ -62,8 +62,9 @@ class RuleEvaluatorTest {
         assertThat(decide(on(Mode.COOL), 20.0, null, false)).isEqualTo(Action.NONE);
     }
 
+    //safety-service at a fire alarm holds the rule off as a person does (HAS-467, owner 2026-11-22)
     @ParameterizedTest
-    @EnumSource(value = ChangeSource.class, names = {"REMOTE", "DASHBOARD"})
+    @EnumSource(value = ChangeSource.class, names = {"REMOTE", "DASHBOARD", "SAFETY"})
     void should_hold_off_within_thirty_minutes_of_a_change_of_a_person(final ChangeSource person) {
         assertThat(decide(off(), 27.0, new Change(person, NOW.minusMinutes(29)), false)).isEqualTo(Action.NONE);
         assertThat(decide(off(), 27.0, new Change(person, NOW.minusMinutes(31)), false)).isEqualTo(Action.COOL);
