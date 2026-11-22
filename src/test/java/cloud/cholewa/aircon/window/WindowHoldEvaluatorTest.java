@@ -112,7 +112,7 @@ class WindowHoldEvaluatorTest {
 
     @ParameterizedTest
     @EnumSource(value = ChangeSource.class, names = {"REMOTE", "DASHBOARD", "RULE", "EMPTY_HOUSE", "GRID_OUTAGE",
-        "MINIMUM_RESTORED"})
+        "MINIMUM_RESTORED", "SAFETY"})
     void should_give_up_a_stop_the_unit_was_changed_in_by_somebody(final ChangeSource source) {
         final Change change = new Change(source, NOW.minusMinutes(2));
 

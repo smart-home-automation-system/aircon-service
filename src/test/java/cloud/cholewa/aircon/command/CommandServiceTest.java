@@ -105,6 +105,17 @@ class CommandServiceTest {
         assertThat(outcomes.takePending(140, LocalDateTime.now(CLOCK))).contains(ChangeSource.WINDOW);
     }
 
+    //safety-service at a fire alarm (HAS-467): its change is written as its own
+    @Test
+    void should_take_the_source_of_safety() {
+        when(greeClient.command(any(), any())).thenReturn(Mono.empty());
+        when(tracker.readNow(OFFICE)).thenReturn(Mono.just(ON));
+
+        service.send(140, POWER_ON, "safety").as(StepVerifier::create).verifyComplete();
+
+        assertThat(outcomes.takePending(140, LocalDateTime.now(CLOCK))).contains(ChangeSource.SAFETY);
+    }
+
     //the source is who sends: never the remote, never the first read
     @Test
     void should_refuse_a_source_that_sends_nothing() {
@@ -113,7 +124,7 @@ class CommandServiceTest {
                 refused -> {
                     assertThat(refused.getError()).isEqualTo(AirconError.INVALID_COMMAND);
                     assertThat(refused.getMessage())
-                        .isEqualTo("The source of a command is dashboard, rule, window, empty-house or grid-outage");
+                        .isEqualTo("The source of a command is dashboard, rule, window, empty-house, grid-outage or safety");
                 }))
             .verify();
         verify(greeClient, never()).command(any(), any());

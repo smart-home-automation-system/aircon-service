@@ -1,6 +1,7 @@
 package cloud.cholewa.aircon.automation;
 
 import cloud.cholewa.aircon.api.model.CommandRequest;
+import cloud.cholewa.aircon.api.model.RoomCommandReply;
 import cloud.cholewa.aircon.command.CommandService;
 import cloud.cholewa.aircon.error.AirconException;
 import cloud.cholewa.aircon.state.ChangeSource;
@@ -13,9 +14,11 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -65,6 +68,32 @@ class RuleCommandsTest {
             .expectError(AirconException.class).verify();
 
         verify(repository).insert(new RuleRun(NOW, ChangeSource.WINDOW, 140, EPISODE, "{Pow=0}", RunResult.REFUSED));
+    }
+
+    //a command of a room (HAS-467, safety-service): a row for what each unit came to, the replies as they are
+    @Test
+    void should_log_what_each_unit_of_a_room_came_to() {
+        final List<RoomCommandReply> replies = List.of(new RoomCommandReply(140, true, null),
+            new RoomCommandReply(141, false, "INVALID_COMMAND"), new RoomCommandReply(142, false, "DEVICE_FAILED"));
+        when(commandService.sendToRoom("office", OFF, "safety")).thenReturn(Mono.just(replies));
+
+        commands.sendToRoom("office", OFF, ChangeSource.SAFETY).as(StepVerifier::create)
+            .expectNext(replies).verifyComplete();
+
+        verify(repository).insert(new RuleRun(NOW, ChangeSource.SAFETY, 140, null, "{Pow=0}", RunResult.SENT));
+        verify(repository).insert(new RuleRun(NOW, ChangeSource.SAFETY, 141, null, "{Pow=0}", RunResult.REFUSED));
+        verify(repository).insert(new RuleRun(NOW, ChangeSource.SAFETY, 142, null, "{Pow=0}", RunResult.FAILED));
+    }
+
+    //a room not known fails before any unit: nothing to log
+    @Test
+    void should_log_nothing_for_a_room_that_fails() {
+        when(commandService.sendToRoom("garage", OFF, "safety")).thenReturn(Mono.error(AirconException.roomNotFound()));
+
+        commands.sendToRoom("garage", OFF, ChangeSource.SAFETY).as(StepVerifier::create)
+            .expectError(AirconException.class).verify();
+
+        verify(repository, never()).insert(any());
     }
 
     //a row that could not be written changes nothing of the command

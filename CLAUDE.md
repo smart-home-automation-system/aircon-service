@@ -6,7 +6,7 @@ state, commands and the rules of the house (open windows, 22 °C minimum in cool
 registry and the driver; the state of every unit since HAS-381; the commands and the guard of 22 °C since HAS-382;
 the availability monitor since HAS-383; the open windows since HAS-384; the empty house and a lost grid since HAS-385; the rule per unit since HAS-386; the frost
 protection by schedule since HAS-387; the draw of the plugs and the power cycle since HAS-390; the run hours and the
-filter reminder since HAS-391.
+filter reminder since HAS-391; the command source `safety` (safety-service at a fire alarm) since HAS-467.
 
 Part of the smart-home-automation-system organization — org-wide conventions, the
 repository map and working rules come from the workspace-level context
@@ -25,13 +25,13 @@ IntelliJ.
   sanctum), `presence-service` (`GET /home/presence/residents/presence`) and `energy-service`
   (`GET /home/energy/status`, >= 0.4.0) every minute for the empty house and the grid (HAS-385), the units themselves
   (UDP 7000) and the two plugs that feed them over HTTP (shelly-client, every 30 s - HAS-390).
-- Uses libraries: `cholewa-commons` 1.13.0 (the pooled `ConnectionFactory`, the required
-  properties, the scheduler pool and `ScheduledPass`, the error contract), `smart-home-sdk` 1.18.0
-  (`DeviceKind.AIR_CONDITIONER`, `GreeBinding`), `shelly-client` 2.7.0 **with its beans on**
+- Uses libraries: `cholewa-commons` 1.14.0 (the pooled `ConnectionFactory`, the required
+  properties, the scheduler pool and `ScheduledPass`, the error contract), `smart-home-sdk` 1.24.0
+  (`DeviceKind.AIR_CONDITIONER`, `GreeBinding`; the registry is read by `?kind=`, so the kinds added since 1.18.0 changed nothing), `shelly-client` 2.7.0 **with its beans on**
   (`Switch.GetStatus` / `Switch.Set` of the indoor plug, `PM1.GetStatus` of the meter of sanctum - HAS-390; pinned by
   `AirconServiceApplicationTest`).
-- Database: own database `home-automation-aircon`, pool 2 - with it 22 of the 47 connections of the
-  managed database are allotted to this project (25 with ristretto).
+- Database: own database `home-automation-aircon`, pool 2 - with it 26 of the 47 connections of the
+  managed database are allotted to this project (29 with ristretto).
 
 ## Build & run
 
@@ -42,7 +42,7 @@ IntelliJ.
   Actuator `8200`. Needs `database-password` and the other `database-*` values. **The real values
   are the production database** - a migration is rehearsed on a throwaway PostgreSQL, never by a
   local run. A local run also binds the real units the registry names.
-- Spring Boot 4.1.2, logbook 4.2.0; own libraries on the latest releases, as the org rule asks of
+- Spring Boot 4.1.3 (4.2.0 moves RabbitMQ and cholewa-commons 1.14.0 is built on 4.1), logbook 4.2.0; own libraries on the latest releases, as the org rule asks of
   every service task.
 
 ## The Gree protocol - the facts the driver is built on
@@ -119,7 +119,8 @@ firmware `362001065279+U-WB05RT13V1.45.bin`, `ver V3.4.M`, mid 10001:
   rehearsed the same way (0.2.0 starts over V3). **`V4`** (HAS-383) creates `aircon_availability_alert`; rehearsed
   the same way with 0.3.0. **`V5`** (HAS-384) creates `aircon_window_hold`; rehearsed the same way with 0.4.0 (0.4.0 starts over V5). **`V6`** (HAS-385)
   creates `aircon_rule_run`; rehearsed the same way with 0.5.0 (0.5.0 starts over V6). **`V7`** (HAS-386) creates
-  `aircon_rule`; rehearsed the same way with 0.6.0 (0.6.0 starts over V7).
+  `aircon_rule`; rehearsed the same way with 0.6.0 (0.6.0 starts over V7). **`V10`** (HAS-467) adds `safety` to the checks
+  of `aircon_state_change` and `aircon_rule_run`; rehearsed the same way with 0.11.0 (0.11.0 starts over V10).
 - **Scheduling is off under `test`** (`SchedulingConfig`, `@Profile("!test")`): the registry pass
   is wrapped in `ScheduledPass.bounded` (2 min, below its 5 min delay), the state pass too (25 s, below its 30 s),
   the availability monitor, the window pass, the automation and the rules (55 s, below their minute); the scheduler has the pool
@@ -172,6 +173,14 @@ firmware `362001065279+U-WB05RT13V1.45.bin`, `ver V3.4.M`, mid 10001:
   rules to come - goes through it: `CommandService` under its source, then a row of `aircon_rule_run` (`V6`: source,
   unit, episode, the wire command, `sent` / `failed` / `refused`), kept 90 days. A row that fails is a WARN. The window
   logs its commands there too (the episode is the time of the stop).
+- **The source `safety`** (HAS-467, epic HAS-455): safety-service switches every unit that is on off at a fire alarm
+  (`POST /{id}?source=safety`, `power: false`; `/rooms/{room}` takes it too). `ApiCommands` hands a command of the API
+  with that source to `RuleCommands` - an automatic command, a row of `aircon_rule_run` (`V10`; for a room a row a unit,
+  from what each came to, none when the room fails before any unit) - and every other source to `CommandService` as it
+  comes. Its change is written in the history as `safety`. **This service does not know the alarm episode** and builds
+  nothing for it: the rule treats `safety` as a person's change (`A_PERSON` of `RuleEvaluator`, owner 2026-11-22) - nothing
+  within `manual-hold` (PT30M), then keep below or the frost protection may switch the unit on again; a stop of the
+  window is given up by it (no restore during an alarm). The empty house and a lost grid are untouched by it.
 - **The rule per unit** (HAS-386, `rule/`): `RuleRules` is **a pure class the dashboard copies** - the threshold 20-30 C
   by 0.5, the hysteresis 0.5-3 by 0.5 (default 1), the target a whole degree 22-30 and never above the threshold (so a
   threshold below 22 is refused while the target is 22) - repeated as the checks of `aircon_rule` (`V7`). `RuleEngine`
@@ -181,7 +190,7 @@ firmware `362001065279+U-WB05RT13V1.45.bin`, `ver V3.4.M`, mid 10001:
   2026-11-07: it reads 2-7 C low in sanctum; the Plus H&T reports on a change and every two hours, so 30 min would
   discard it); above the threshold - cool at the target unless cooling, `source=rule`; below threshold - hysteresis - off,
   only while the unit's last change is the rule's and it is on. Nothing within `manual-hold` (PT30M) of a change by the
-  remote or the dashboard, nothing for a unit not answering or not read, no cooling while the grid is lost or the window
+  remote, the dashboard or `safety` (HAS-467), nothing for a unit not answering or not read, no cooling while the grid is lost or the window
   of its room holds (the off still goes). **The last change of every unit is restored from `aircon_state_change` at a
   start** (`AirconStateRepository.lastChanges`), so the rule knows after a restart which unit it switched on - and the
   window which unit a person changed. **Heat by schedule is a frost protection** (HAS-387, owner 2026-11-08: the

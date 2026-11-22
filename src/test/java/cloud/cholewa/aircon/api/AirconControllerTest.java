@@ -19,7 +19,7 @@ import cloud.cholewa.aircon.automation.AutomationService;
 import cloud.cholewa.aircon.api.model.CommandRequest;
 import cloud.cholewa.aircon.api.model.RoomCommandReply;
 import cloud.cholewa.aircon.api.model.WindowReply;
-import cloud.cholewa.aircon.command.CommandService;
+import cloud.cholewa.aircon.automation.ApiCommands;
 import cloud.cholewa.aircon.config.ExceptionHandlerConfig;
 import cloud.cholewa.aircon.error.AirconException;
 import cloud.cholewa.aircon.unit.FanSpeed;
@@ -42,6 +42,7 @@ import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 //The JSON is the contract of the dashboard, so the body is written out whole
@@ -61,7 +62,7 @@ class AirconControllerTest {
     private UnitService unitService;
 
     @MockitoBean
-    private CommandService commandService;
+    private ApiCommands apiCommands;
 
     @MockitoBean
     private AutomationService automationService;
@@ -196,7 +197,7 @@ class AirconControllerTest {
     void should_accept_a_command() {
         final CommandRequest command = new CommandRequest(true, Mode.COOL, 23, FanSpeed.MEDIUM_HIGH, null, null, null,
             null, null, null);
-        when(commandService.send(140, command, "dashboard")).thenReturn(Mono.empty());
+        when(apiCommands.send(140, command, "dashboard")).thenReturn(Mono.empty());
 
         webTestClient.post().uri("/140")
             .contentType(MediaType.APPLICATION_JSON)
@@ -207,9 +208,24 @@ class AirconControllerTest {
             .expectBody().isEmpty();
     }
 
+    //safety-service at a fire alarm (HAS-467)
+    @Test
+    void should_hand_a_command_of_safety_on_with_its_source() {
+        when(apiCommands.send(eq(140L), any(), eq("safety"))).thenReturn(Mono.empty());
+
+        webTestClient.post().uri("/140?source=safety")
+            .contentType(MediaType.APPLICATION_JSON)
+            .bodyValue("""
+                {"power": false}""")
+            .exchange()
+            .expectStatus().isAccepted();
+
+        verify(apiCommands).send(eq(140L), any(), eq("safety"));
+    }
+
     @Test
     void should_refuse_a_command_the_rules_refuse() {
-        when(commandService.send(eq(140L), any(), eq("window")))
+        when(apiCommands.send(eq(140L), any(), eq("window")))
             .thenReturn(Mono.error(AirconException.invalidCommand("Cooling never goes below 22 C, not 20")));
 
         webTestClient.post().uri("/140?source=window")
@@ -225,7 +241,7 @@ class AirconControllerTest {
 
     @Test
     void should_answer_device_failed_as_a_bad_gateway() {
-        when(commandService.send(eq(140L), any(), eq("dashboard")))
+        when(apiCommands.send(eq(140L), any(), eq("dashboard")))
             .thenReturn(Mono.error(AirconException.deviceFailed("Air conditioner 140 did not take the command")));
 
         webTestClient.post().uri("/140")
@@ -239,7 +255,7 @@ class AirconControllerTest {
 
     @Test
     void should_answer_a_command_of_a_room_unit_by_unit() {
-        when(commandService.sendToRoom(eq("office"), any(), eq("dashboard")))
+        when(apiCommands.sendToRoom(eq("office"), any(), eq("dashboard")))
             .thenReturn(Mono.just(List.of(new RoomCommandReply(140, true, null),
                 new RoomCommandReply(145, false, "DEVICE_FAILED"))));
 
